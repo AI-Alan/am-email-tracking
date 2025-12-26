@@ -6,6 +6,7 @@ export async function handleEmailReply(
     fromEmail: string,
     receivedAt: string
 ): Promise<void> {
+    console.log(`💬 Attempting to track reply for: ${messageId} from ${fromEmail}`);
     try {
         const { COSMOS_URI, COSMOS_KEY, COSMOS_DATABASE_REALTOR_MANAGEMENT, COSMOS_CONTAINER_EMAIL } = process.env;
 

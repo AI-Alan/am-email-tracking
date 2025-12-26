@@ -12,6 +12,7 @@ app.use(express.json());
 
 // Send email endpoint
 app.post("/send-email", async (req: Request, res: Response) => {
+    console.log(`📨 Received send-email request for: ${req.body.email}`);
     try {
         const { email, user_id } = req.body;
 
@@ -40,6 +41,8 @@ app.post("/send-email", async (req: Request, res: Response) => {
 
 // Microsoft Graph webhook endpoint
 app.post("/graph/webhook", async (req: Request, res: Response) => {
+    console.log(`🔔 Webhook received:`, req.query, req.body?.value?.length || 0, 'notifications');
+
     // Handle validation token handshake
     const validationToken = req.query.validationToken as string;
     if (validationToken) {
