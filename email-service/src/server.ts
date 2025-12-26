@@ -1,8 +1,9 @@
-import "dotenv/config"; // Load environment variables
+import "dotenv/config";
 import express, { Request, Response } from "express";
 import { emailService } from "./services/emailService";
 import { handleEmailReply } from "./services/replyTrackingHandler";
 import { handleEmailDelivery } from "./services/deliveryTrackingHandler";
+import { initializeSubscription } from "./services/subscriptionManager";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -20,16 +21,7 @@ app.post("/send-email", async (req: Request, res: Response) => {
             return res.status(400).json({ success: false, error: "Email is required" });
         }
 
-        // Create recipient with optional user_id
-        const recipient = {
-            email,
-            name: 'Test User',
-            ...(user_id && { user_id })
-        };
-
-        // Call the proper sendTestEmail method (includes tracking pixel)
         await emailService.sendTestEmail(email, user_id);
-
         res.json({ success: true, message: `Test email sent to ${email}` });
     } catch (error) {
         res.status(500).json({
@@ -57,14 +49,12 @@ app.post("/graph/webhook", async (req: Request, res: Response) => {
             return res.status(400).send("Invalid notification format");
         }
 
-        // Process each notification asynchronously
         for (const notification of notifications) {
             if (notification.changeType === "created") {
-                processInboxMessage(notification).catch(() => { }); // Suppress errors
+                processInboxMessage(notification).catch(() => { });
             }
         }
 
-        // Always respond 202 immediately
         res.status(202).send();
     } catch (error) {
         res.status(500).send("Internal error");
@@ -84,7 +74,6 @@ async function processInboxMessage(notification: any): Promise<void> {
 
         // Check if this is a delivery receipt
         if (subject.toLowerCase().includes("delivered:") || subject.toLowerCase().includes("delivery receipt")) {
-            // Extract original messageId from headers or body
             const messageId = internetMessageHeaders.find(
                 (h: any) => h.name === "X-AgentMira-Message-Id"
             )?.value;
@@ -95,12 +84,11 @@ async function processInboxMessage(notification: any): Promise<void> {
             }
         }
 
-        // Check if this is a bounce/NDR (Non-Delivery Report)
+        // Check if this is a bounce/NDR
         if (subject.toLowerCase().includes("undeliverable:") ||
             subject.toLowerCase().includes("delivery status notification") ||
             subject.toLowerCase().includes("failure notice")) {
 
-            // Extract original messageId and bounce reason
             const messageId = internetMessageHeaders.find(
                 (h: any) => h.name === "X-AgentMira-Message-Id"
             )?.value;
@@ -128,8 +116,34 @@ async function processInboxMessage(notification: any): Promise<void> {
     }
 }
 
-app.listen(PORT, () => {
-    console.log(`📧 Email lifecycle server running on ${BASE_URL}`);
+// Test endpoint for manual reply tracking
+app.post("/test-reply", async (req: Request, res: Response) => {
+    try {
+        const { messageId, fromEmail } = req.body;
+
+        if (!messageId || !fromEmail) {
+            return res.status(400).json({
+                success: false,
+                error: "messageId and fromEmail are required"
+            });
+        }
+
+        await handleEmailReply(messageId, fromEmail, new Date().toISOString());
+        res.json({ success: true, message: `Reply tracked for ${messageId}` });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
+app.listen(PORT, async () => {
+    console.log(`📧 Email service running on ${BASE_URL}`);
     console.log(`   POST /send-email - Send test emails`);
     console.log(`   POST /graph/webhook - Reply tracking webhook`);
+    console.log(`   POST /test-reply - Manual reply test`);
+
+    // Initialize subscription on startup
+    await initializeSubscription();
 });

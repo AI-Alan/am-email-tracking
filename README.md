@@ -6,6 +6,8 @@ Complete email tracking system with open tracking, reply tracking, delivery trac
 
 ### Email Service (Port 3000)
 - Send emails via Microsoft Graph API
+- Auto-creates webhook subscription on startup
+- Auto-renews subscription every 2 days
 - Track replies via webhooks
 - Track delivery/bounce status
 - Store logs in Cosmos DB
@@ -35,14 +37,17 @@ npm run dev
 
 ## Deployment
 
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for Render deployment instructions.
+See [RENDER_DEPLOYMENT_FLOW.md](./RENDER_DEPLOYMENT_FLOW.md) for Render deployment instructions.
+
+**Reply Tracking:** Automatically sets up on first deployment. The webhook subscription is created when the app starts and auto-renews every 2 days.
 
 ## Features
 
 - ✅ Email sending with Microsoft Graph
 - ✅ Open tracking with pixel
-- ✅ Reply tracking via webhooks
+- ✅ Reply tracking via webhooks (auto-setup)
 - ✅ Delivery/bounce detection
 - ✅ Cosmos DB logging
 - ✅ Human-readable timestamps
 - ✅ User ID partition key support
+- ✅ Auto-renewal of webhook subscriptions
