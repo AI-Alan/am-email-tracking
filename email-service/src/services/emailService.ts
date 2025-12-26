@@ -300,8 +300,8 @@ class EmailService {
   /**
    * Send custom email with subject and HTML body
    */
-  async sendCustomEmail(recipient: EmailRecipient, subject: string, htmlBody: string): Promise<boolean> {
-    const messageId = randomUUID();  // Generate UUID for message tracking
+  async sendCustomEmail(recipient: EmailRecipient, subject: string, htmlBody: string, providedMessageId?: string): Promise<boolean> {
+    const messageId = providedMessageId || randomUUID();  // Use provided messageId or generate new one
 
     try {
       // Embed messageId in email body as HTML comment
@@ -413,10 +413,8 @@ class EmailService {
       <img src="${trackingUrl}/open/${messageId}.png" width="1" height="1" style="display:none" alt="" />
     `;
 
-    // Use sendCustomEmail but we need to pass the messageId
-    // For now, call sendCustomEmail which will generate its own messageId
-    // TODO: Refactor to accept optional messageId parameter
-    return this.sendCustomEmail(testRecipient, testSubject, testBody);
+    // Use sendCustomEmail but pass the messageId we generated for the tracking pixel
+    return this.sendCustomEmail(testRecipient, testSubject, testBody, messageId);
   }
 }
 
