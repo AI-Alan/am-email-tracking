@@ -26,38 +26,55 @@ function getGraphClient(): Client {
 async function createSubscription(maxRetries = 3, retryDelayMs = 15000): Promise<string | null> {
     let lastError: any = null;
 
+    const { SENDER_EMAIL, WEBHOOK_URL, RENDER_EXTERNAL_URL } = process.env;
+
+    // Determine the best webhook URL
+    // Priority: 1. WEBHOOK_URL env var, 2. RENDER_EXTERNAL_URL/graph/webhook
+    let finalWebhookUrl = WEBHOOK_URL;
+    if (!finalWebhookUrl && RENDER_EXTERNAL_URL) {
+        finalWebhookUrl = `${RENDER_EXTERNAL_URL}${RENDER_EXTERNAL_URL.endsWith('/') ? '' : '/'}graph/webhook`;
+        console.log(`ℹ️ WEBHOOK_URL not set, using RENDER_EXTERNAL_URL: ${finalWebhookUrl}`);
+    }
+
+    if (!SENDER_EMAIL || !finalWebhookUrl) {
+        console.error("❌ SENDER_EMAIL or finalWebhookUrl not configured");
+        return null;
+    }
+
+    console.log(`📋 Subscription Config:`);
+    console.log(`   - Sender: ${SENDER_EMAIL}`);
+    console.log(`   - Webhook: ${finalWebhookUrl}`);
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
-            const { SENDER_EMAIL, WEBHOOK_URL } = process.env;
-
-            if (!SENDER_EMAIL || !WEBHOOK_URL) {
-                console.error("❌ SENDER_EMAIL or WEBHOOK_URL not configured");
-                return null;
-            }
-
             console.log(`🔔 Attempting to create subscription (Attempt ${attempt}/${maxRetries})...`);
             const client = getGraphClient();
 
-            const subscription = {
+            const subscriptionData = {
                 changeType: "created",
-                notificationUrl: WEBHOOK_URL,
+                notificationUrl: finalWebhookUrl,
                 resource: `/users/${SENDER_EMAIL}/mailFolders('Inbox')/messages`,
                 expirationDateTime: new Date(Date.now() + 3 * 24 * 60 * 60 * 1000).toISOString(),
                 clientState: "AgentMiraReplyTracking",
             };
 
-            const result = await client.api("/subscriptions").post(subscription);
+            const result = await client.api("/subscriptions").post(subscriptionData);
             console.log(`✅ Subscription created: ${result.id} (expires: ${result.expirationDateTime})`);
             return result.id;
         } catch (error: any) {
             lastError = error;
             console.warn(`⚠️ Subscription attempt ${attempt} failed: ${error.message}`);
 
+            // Helpful tip if we get a 404
+            if (error.message?.includes("NotFound")) {
+                console.warn(`💡 Tip: NotFound (404) means Microsoft Graph reached a server but couldn't find the /graph/webhook path.`);
+                console.warn(`   Ensure the Webhook URL above is exactly where your server is reachable.`);
+            }
+
             if (attempt < maxRetries) {
                 console.log(`⏱ Wait ${retryDelayMs / 1000}s before retrying...`);
                 await new Promise(resolve => setTimeout(resolve, retryDelayMs));
-                // Increase delay for next attempt (exponential-ish backoff)
-                retryDelayMs *= 2;
+                retryDelayMs *= 2; // Backoff
             }
         }
     }

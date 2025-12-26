@@ -31,32 +31,46 @@ app.post("/send-email", async (req: Request, res: Response) => {
     }
 });
 
-// Microsoft Graph webhook endpoint
-app.post("/graph/webhook", async (req: Request, res: Response) => {
-    console.log(`🔔 Webhook received:`, req.query, req.body?.value?.length || 0, 'notifications');
+// Health check endpoint
+app.get("/health", (req: Request, res: Response) => {
+    res.json({ status: "ok", time: new Date().toISOString() });
+});
 
-    // Handle validation token handshake
-    const validationToken = req.query.validationToken as string;
+// Microsoft Graph webhook endpoint (Handles both validation and notifications)
+app.all("/graph/webhook", async (req: Request, res: Response) => {
+    const { validationToken } = req.query;
+
+    // 1. Handle validation handshake (Microsoft Graph)
     if (validationToken) {
-        return res.status(200).send(validationToken);
+        console.log(`✅ Webhook validation request received. Token: ${String(validationToken).substring(0, 10)}...`);
+        return res
+            .status(200)
+            .set("Content-Type", "text/plain")
+            .send(validationToken);
     }
 
-    // Process notification
+    // 2. Handle actual notifications (POST only)
+    if (req.method !== "POST") {
+        return res.status(405).send("Method Not Allowed for notifications");
+    }
+
+    console.log(`🔔 Webhook notification received: ${req.body?.value?.length || 0} items`);
+
     try {
         const notifications = req.body.value;
-
         if (!notifications || !Array.isArray(notifications)) {
-            return res.status(400).send("Invalid notification format");
+            return res.status(400).send("Invalid format");
         }
 
         for (const notification of notifications) {
             if (notification.changeType === "created") {
-                processInboxMessage(notification).catch(() => { });
+                processInboxMessage(notification).catch(err => console.error("Error processing notification:", err));
             }
         }
 
         res.status(202).send();
     } catch (error) {
+        console.error("Webhook processing error:", error);
         res.status(500).send("Internal error");
     }
 });
