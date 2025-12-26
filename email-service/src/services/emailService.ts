@@ -238,6 +238,7 @@ class EmailService {
    */
   async sendTemplateEmail(options: EmailOptions): Promise<boolean> {
     const messageId = randomUUID();  // Generate UUID for message tracking
+    console.log(`📧 Sending template email to ${options.recipient.email} [${messageId}]`);
 
     try {
       const { recipient, template, templateData } = options;
@@ -302,6 +303,7 @@ class EmailService {
    */
   async sendCustomEmail(recipient: EmailRecipient, subject: string, htmlBody: string, providedMessageId?: string): Promise<boolean> {
     const messageId = providedMessageId || randomUUID();  // Use provided messageId or generate new one
+    console.log(`📧 Sending custom email to ${recipient.email} [${messageId}]`);
 
     try {
       // Embed messageId in email body as HTML comment
