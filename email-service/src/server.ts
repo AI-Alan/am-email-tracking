@@ -5,7 +5,8 @@ import { handleEmailReply } from "./services/replyTrackingHandler";
 import { handleEmailDelivery } from "./services/deliveryTrackingHandler";
 
 const app = express();
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
+const BASE_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
 
 app.use(express.json());
 
@@ -125,7 +126,7 @@ async function processInboxMessage(notification: any): Promise<void> {
 }
 
 app.listen(PORT, () => {
-    console.log(`📧 Email lifecycle server running on http://localhost:${PORT}`);
+    console.log(`📧 Email lifecycle server running on ${BASE_URL}`);
     console.log(`   POST /send-email - Send test emails`);
     console.log(`   POST /graph/webhook - Reply tracking webhook`);
 });

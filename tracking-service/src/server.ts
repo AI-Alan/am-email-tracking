@@ -4,7 +4,8 @@ import { handleEmailOpen } from "./services/openTrackingHandler";
 import { TRANSPARENT_PNG } from "./services/transparetPng";
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
+const BASE_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
 
 // Open tracking endpoint
 app.get("/open/:messageId.png", async (req: Request, res: Response) => {
@@ -24,6 +25,6 @@ app.get("/open/:messageId.png", async (req: Request, res: Response) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`🔍 Open tracking server running on http://localhost:${PORT}`);
+    console.log(`🔍 Open tracking server running on ${BASE_URL}`);
     console.log(`   GET /open/:messageId.png - Track email opens`);
 });
