@@ -77,10 +77,14 @@ async function createSubscription(maxRetries = 3, retryDelayMs = 15000): Promise
             lastError = error;
             console.warn(`⚠️ Subscription attempt ${attempt} failed: ${error.message}`);
 
-            // Helpful tip if we get a 404
+            // Helpful tip if we get a 404 or 403
             if (error.message?.includes("NotFound")) {
                 console.warn(`💡 Tip: NotFound (404) means Microsoft Graph reached a server but couldn't find the /graph/webhook path.`);
                 console.warn(`   Ensure the Webhook URL above is exactly where your server is reachable.`);
+            } else if (error.message?.includes("Forbidden") || error.statusCode === 403) {
+                console.warn(`💡 Tip: Forbidden (403) means your Azure App lacks permissions to read mail or create subscriptions.`);
+                console.warn(`   Ensure your App Registration in Azure has 'Mail.Read' (Application permission) granted.`);
+                console.warn(`   CRITICAL: Admin Consent must be granted in the Azure Portal for these permissions to take effect.`);
             }
 
             if (attempt < maxRetries) {
