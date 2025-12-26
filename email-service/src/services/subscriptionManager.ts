@@ -29,15 +29,27 @@ async function createSubscription(maxRetries = 3, retryDelayMs = 15000): Promise
     const { SENDER_EMAIL, WEBHOOK_URL, RENDER_EXTERNAL_URL } = process.env;
 
     // Determine the best webhook URL
-    // Priority: 1. WEBHOOK_URL env var, 2. RENDER_EXTERNAL_URL/graph/webhook
-    let finalWebhookUrl = WEBHOOK_URL;
-    if (!finalWebhookUrl && RENDER_EXTERNAL_URL) {
+    let finalWebhookUrl = "";
+
+    // 1. Check WEBHOOK_URL but ignore if it's a placeholder
+    const isPlaceholder = (url?: string) => !url || url.includes("your-ngrok-url") || url.includes("example.com");
+
+    if (!isPlaceholder(WEBHOOK_URL)) {
+        finalWebhookUrl = WEBHOOK_URL!;
+    }
+    // 2. Try RENDER_EXTERNAL_URL
+    else if (RENDER_EXTERNAL_URL) {
         finalWebhookUrl = `${RENDER_EXTERNAL_URL}${RENDER_EXTERNAL_URL.endsWith('/') ? '' : '/'}graph/webhook`;
-        console.log(`ℹ️ WEBHOOK_URL not set, using RENDER_EXTERNAL_URL: ${finalWebhookUrl}`);
+        console.log(`ℹ️ Using RENDER_EXTERNAL_URL: ${finalWebhookUrl}`);
+    }
+    // 3. Last resort - use the known Render URL for this project
+    else {
+        finalWebhookUrl = "https://am-email-tracking.onrender.com/graph/webhook";
+        console.log(`⚠️ Using hardcoded fallback URL: ${finalWebhookUrl}`);
     }
 
-    if (!SENDER_EMAIL || !finalWebhookUrl) {
-        console.error("❌ SENDER_EMAIL or finalWebhookUrl not configured");
+    if (!SENDER_EMAIL) {
+        console.error("❌ SENDER_EMAIL not configured");
         return null;
     }
 
