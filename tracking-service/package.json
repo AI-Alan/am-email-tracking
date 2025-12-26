@@ -6,6 +6,7 @@
     "scripts": {
         "start": "node dist/server.js",
         "build": "tsc",
+        "postinstall": "npm run build",
         "dev": "ts-node src/server.ts"
     },
     "dependencies": {
