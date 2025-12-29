@@ -3,7 +3,9 @@ import express, { Request, Response } from "express";
 import { emailService } from "./services/emailService";
 import { handleEmailReply } from "./services/replyTrackingHandler";
 import { handleEmailDelivery } from "./services/deliveryTrackingHandler";
+import { handleEmailOpen } from "./services/openTrackingHandler";
 import { initializeSubscription } from "./services/subscriptionManager";
+import { emailInsightService } from "./services/emailInsightService";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,20 +17,47 @@ app.use(express.json());
 app.post("/send-email", async (req: Request, res: Response) => {
     console.log(`📨 Received send-email request for: ${req.body.email}`);
     try {
-        const { email, user_id } = req.body;
+        const { email, user_id, subject, body, name } = req.body;
 
         if (!email) {
             return res.status(400).json({ success: false, error: "Email is required" });
         }
 
-        await emailService.sendTestEmail(email, user_id);
-        res.json({ success: true, message: `Test email sent to ${email}` });
+        await emailService.sendEmail(email, user_id, subject, body, name);
+        res.json({ success: true, message: `Email sent to ${email}` });
     } catch (error) {
         res.status(500).json({
             success: false,
             error: error instanceof Error ? error.message : "Unknown error"
         });
     }
+});
+
+// Open tracking pixel endpoint
+app.get("/open/:messageId.png", async (req: Request, res: Response) => {
+    const { messageId } = req.params;
+    const userAgent = req.headers["user-agent"] || "unknown";
+
+    console.log(`👁️ Tracking pixel requested: ${messageId}`);
+
+    // Track the open asynchronously
+    handleEmailOpen(messageId, userAgent).catch(err => console.error("Open track error:", err));
+
+    // Return a 1x1 transparent PNG
+    const pixel = Buffer.from(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==",
+        "base64"
+    );
+
+    res.set({
+        "Content-Type": "image/png",
+        "Content-Length": pixel.length,
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0"
+    });
+
+    res.send(pixel);
 });
 
 // Health check endpoint
@@ -123,7 +152,30 @@ async function processInboxMessage(notification: any): Promise<void> {
         )?.value;
 
         if (messageId) {
-            await handleEmailReply(messageId, fromEmail, receivedAt);
+            // Extract additional reply details from webhook data
+            const replyMessageId = resourceData.id;
+            const replySnippet = resourceData.bodyPreview || resourceData.body?.content?.substring(0, 500) || '';
+            
+            // Detect auto-reply by checking headers or subject
+            const headers = resourceData.internetMessageHeaders || [];
+            const hasAutoReplyHeader = headers.some((h: any) => 
+                h.name === 'X-Auto-Response-Suppress' || 
+                h.name === 'Auto-Submitted' ||
+                h.name === 'Precedence' && h.value === 'auto_reply'
+            );
+            const hasAutoReplySubject = subject.toLowerCase().includes('automatic reply') ||
+                                       subject.toLowerCase().includes('out of office') ||
+                                       subject.toLowerCase().includes('auto-reply');
+            const isAutoReply = hasAutoReplyHeader || hasAutoReplySubject;
+
+            await handleEmailReply(
+                messageId, 
+                fromEmail, 
+                receivedAt,
+                replyMessageId,
+                replySnippet,
+                isAutoReply
+            );
         }
     } catch (error) {
         // Fail silently
@@ -152,11 +204,41 @@ app.post("/test-reply", async (req: Request, res: Response) => {
     }
 });
 
+// Generate tracking summary endpoint
+app.post("/generate-insights", async (req: Request, res: Response) => {
+    try {
+        const { buyer_id } = req.body;
+
+        if (!buyer_id) {
+            return res.status(400).json({
+                success: false,
+                error: "buyer_id is required"
+            });
+        }
+
+        console.log(`📊 Generating insights for buyer_id: ${buyer_id}`);
+        const summary = await emailInsightService.generateTrackingSummary(buyer_id);
+
+        res.json({
+            success: true,
+            data: summary,
+            message: `Insights generated successfully for buyer_id: ${buyer_id}`
+        });
+    } catch (error) {
+        console.error("Error generating insights:", error);
+        res.status(500).json({
+            success: false,
+            error: error instanceof Error ? error.message : "Unknown error"
+        });
+    }
+});
+
 app.listen(PORT, async () => {
     console.log(`📧 Email service running on ${BASE_URL}`);
     console.log(`   POST /send-email - Send test emails`);
     console.log(`   POST /graph/webhook - Reply tracking webhook`);
     console.log(`   POST /test-reply - Manual reply test`);
+    console.log(`   POST /generate-insights - Generate tracking insights for buyer_id`);
 
     // Initialize subscription on startup
     await initializeSubscription();

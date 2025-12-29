@@ -1,67 +1,46 @@
-import { CosmosClient } from "@azure/cosmos";
+import { dbService } from "./dbService";
+import { LifecycleStatus } from "../types/tracking";
 
 // Pure logic handler for reply tracking - no Express dependencies
 export async function handleEmailReply(
     messageId: string,
     fromEmail: string,
-    receivedAt: string
+    receivedAt: string,
+    replyMessageId?: string,
+    replySnippet?: string,
+    isAutoReply?: boolean
 ): Promise<void> {
     console.log(`💬 Attempting to track reply for: ${messageId} from ${fromEmail}`);
     try {
-        const { COSMOS_URI, COSMOS_KEY, COSMOS_DATABASE_REALTOR_MANAGEMENT, COSMOS_CONTAINER_EMAIL } = process.env;
+        // Read current email log 
+        const resource = await dbService.findTrackingDataById(messageId);
 
-        if (!COSMOS_URI || !COSMOS_KEY || !COSMOS_DATABASE_REALTOR_MANAGEMENT || !COSMOS_CONTAINER_EMAIL) {
-            console.error("Missing Cosmos DB environment variables");
-            return; // Fail silently
-        }
-
-        const cosmosClient = new CosmosClient({ endpoint: COSMOS_URI, key: COSMOS_KEY });
-        const container = cosmosClient
-            .database(COSMOS_DATABASE_REALTOR_MANAGEMENT)
-            .container(COSMOS_CONTAINER_EMAIL);
-
-        // Read current email log using query since we don't know partition key upfront
-        const query = `SELECT * FROM c WHERE c.id = @messageId`;
-        const { resources } = await container.items
-            .query({
-                query,
-                parameters: [{ name: "@messageId", value: messageId }]
-            })
-            .fetchAll();
-
-        if (!resources || resources.length === 0) {
+        if (!resource) {
             console.error(`Email log not found for reply: ${messageId}`);
             return; // Fail silently
         }
 
-        const resource = resources[0];
-
         const updates: any[] = [];
-        const newReplyCount = (resource.replyCount ?? 0) + 1;
 
-        // Always increment replyCount
-        updates.push({ op: "set", path: "/replyCount", value: newReplyCount });
-
-        // Always update lastReplyFrom
-        updates.push({ op: "set", path: "/lastReplyFrom", value: fromEmail });
-
-        // Set repliedAt only on first reply
-        if (!resource.repliedAt) {
-            const readable = new Date(receivedAt).toLocaleString('en-US', {
-                month: 'short',
-                day: 'numeric',
-                year: 'numeric',
-                hour: 'numeric',
-                minute: '2-digit',
-                timeZone: 'Asia/Kolkata',
-                timeZoneName: 'short'
-            });
-            updates.push({ op: "set", path: "/repliedAt", value: receivedAt });
-            updates.push({ op: "set", path: "/repliedAt_readable", value: readable });
+        // Update lifecycle status and reply details
+        updates.push({ op: "set", path: "/lifecycleStatus", value: LifecycleStatus.REPLIED });
+        updates.push({ op: "set", path: "/reply/status", value: "REPLIED" });
+        updates.push({ op: "set", path: "/reply/repliedAt", value: receivedAt });
+        updates.push({ op: "set", path: "/reply/from", value: fromEmail });
+        
+        // Add reply message details if provided
+        if (replyMessageId) {
+            updates.push({ op: "set", path: "/reply/replyMessageId", value: replyMessageId });
+        }
+        if (replySnippet) {
+            updates.push({ op: "set", path: "/reply/replySnippet", value: replySnippet });
+        }
+        if (isAutoReply !== undefined) {
+            updates.push({ op: "set", path: "/reply/isAutoReply", value: isAutoReply });
         }
 
-        await container.item(messageId, resource.user_id).patch(updates);
-        console.log(`💬 Reply tracked: ${messageId} from ${fromEmail} (count: ${newReplyCount})`);
+        await dbService.patchTrackingData(messageId, resource.userId, updates);
+        console.log(`💬 Reply tracked: ${messageId} from ${fromEmail}${replyMessageId ? ` [Reply ID: ${replyMessageId}]` : ''}`);
     } catch (error) {
         // Fail silently - never break reply tracking
         console.error("Reply tracking failed:", error);
