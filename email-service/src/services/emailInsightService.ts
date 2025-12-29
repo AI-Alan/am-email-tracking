@@ -63,22 +63,28 @@ class EmailInsightService {
     private apiVersion: string = "2024-02-15-preview";
 
     constructor() {
-        const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
-        const apiKey = process.env.AZURE_OPENAI_API_KEY;
-        const apiVersionEnv = process.env.AZURE_OPENAI_API_VERSION;
-        this.deployment = process.env.AZURE_OPENAI_DEPLOYMENT || "gpt-35-turbo";
+        const endpoint = process.env.AZURE_OPENAI_ENDPOINT?.trim();
+        const apiKey = process.env.AZURE_OPENAI_API_KEY?.trim();
+        const apiVersionEnv = process.env.AZURE_OPENAI_API_VERSION?.trim();
+        this.deployment = process.env.AZURE_OPENAI_DEPLOYMENT?.trim() || "gpt-35-turbo";
         
         // Use environment API version if provided, otherwise use default
         if (apiVersionEnv) {
             this.apiVersion = apiVersionEnv;
         }
 
+        console.log(`🔧 Initializing Azure OpenAI configuration...`);
+        console.log(`   AZURE_OPENAI_ENDPOINT: ${endpoint ? `SET (${endpoint.substring(0, 30)}...)` : 'NOT SET'}`);
+        console.log(`   AZURE_OPENAI_API_KEY: ${apiKey ? `SET (length: ${apiKey.length})` : 'NOT SET'}`);
+        console.log(`   AZURE_OPENAI_DEPLOYMENT: ${this.deployment}`);
+        console.log(`   AZURE_OPENAI_API_VERSION: ${this.apiVersion}`);
+
         // Validate Azure OpenAI configuration with detailed logging
         const missingVars: string[] = [];
-        if (!endpoint || (typeof endpoint === 'string' && endpoint.trim() === "")) {
+        if (!endpoint || endpoint === "") {
             missingVars.push("AZURE_OPENAI_ENDPOINT");
         }
-        if (!apiKey || (typeof apiKey === 'string' && apiKey.trim() === "")) {
+        if (!apiKey || apiKey === "") {
             missingVars.push("AZURE_OPENAI_API_KEY");
         }
 
@@ -86,48 +92,62 @@ class EmailInsightService {
             console.warn("⚠️ Azure OpenAI not configured. Missing required environment variables:");
             missingVars.forEach(v => console.warn(`   - ${v} is missing or empty`));
             console.warn("   Email insights will use default rule-based values.");
-            console.warn(`   Current AZURE_OPENAI_ENDPOINT: ${endpoint ? `SET (${endpoint.substring(0, 20)}...)` : 'NOT SET'}`);
-            console.warn(`   Current AZURE_OPENAI_API_KEY: ${apiKey ? 'SET (length: ' + apiKey.length + ')' : 'NOT SET'}`);
-            console.warn(`   Current AZURE_OPENAI_DEPLOYMENT: ${this.deployment}`);
-            console.warn(`   Current AZURE_OPENAI_API_VERSION: ${this.apiVersion}`);
             console.warn(`   Action: Add these variables to Render Dashboard → Environment → Environment Variables`);
+            this.client = null;
             return;
         }
 
-        // At this point, endpoint and apiKey are guaranteed to be non-empty strings
-        // TypeScript assertion: we've validated above that they exist
-        const validEndpoint = endpoint as string;
-        const validApiKey = apiKey as string;
-
         // Check for placeholder values
-        if (validApiKey === "<REPLACE_WITH_YOUR_KEY_VALUE_HERE>" || validApiKey.trim() === "") {
-            console.warn("⚠️ Azure OpenAI API key is not set properly (contains placeholder). Email insights will use default values.");
+        const placeholderValues = [
+            "<REPLACE_WITH_YOUR_KEY_VALUE_HERE>",
+            "your-api-key-here",
+            "YOUR_API_KEY",
+            "placeholder",
+            "changeme"
+        ];
+        
+        if (placeholderValues.some(placeholder => apiKey!.toLowerCase().includes(placeholder.toLowerCase()))) {
+            console.warn("⚠️ Azure OpenAI API key appears to be a placeholder value. Email insights will use default values.");
+            this.client = null;
             return;
         }
 
         // Clean endpoint (remove trailing slash if present)
-        const cleanEndpoint = validEndpoint.endsWith('/') ? validEndpoint.slice(0, -1) : validEndpoint;
+        const cleanEndpoint = endpoint!.endsWith('/') ? endpoint!.slice(0, -1) : endpoint!;
 
         try {
             // Configure OpenAI client for Azure OpenAI
             // Azure OpenAI requires baseURL with deployment and api-version query param
+            // Note: For Azure OpenAI, we use the deployment name in the baseURL path
+            const baseURL = `${cleanEndpoint}/openai/deployments/${this.deployment}`;
+            
             this.client = new OpenAI({
-                apiKey: validApiKey,
-                baseURL: `${cleanEndpoint}/openai/deployments/${this.deployment}`,
+                apiKey: apiKey!,
+                baseURL: baseURL,
                 defaultQuery: { 'api-version': this.apiVersion },
-                defaultHeaders: { 'api-key': validApiKey },
+                defaultHeaders: { 'api-key': apiKey! },
             });
             
-            console.log(`✅ Azure OpenAI configured successfully`);
-            console.log(`   Endpoint: ${cleanEndpoint}`);
+            console.log(`✅ Azure OpenAI client initialized successfully`);
+            console.log(`   Base URL: ${baseURL}`);
             console.log(`   Deployment: ${this.deployment}`);
             console.log(`   API Version: ${this.apiVersion}`);
-            console.log(`   Base URL: ${cleanEndpoint}/openai/deployments/${this.deployment}`);
-        } catch (error) {
-            console.error(`❌ Failed to initialize Azure OpenAI client:`, error);
+            
+            // Test the connection by making a simple request (optional - can be removed if too slow)
+            // We'll let the first actual request fail gracefully if there's a connection issue
+        } catch (error: any) {
+            console.error(`❌ Failed to initialize Azure OpenAI client:`, error?.message || error);
+            console.error(`   Error details:`, error);
             console.warn("   Email insights will use default rule-based values.");
             this.client = null;
         }
+    }
+
+    /**
+     * Check if AI insights are enabled
+     */
+    public isAIEnabled(): boolean {
+        return this.client !== null;
     }
 
     /**
@@ -137,6 +157,11 @@ class EmailInsightService {
         if (!this.client) {
             // Return default insights if OpenAI is not configured
             console.log(`📊 Using DEFAULT insights for email ${emailDoc.id} (AI not configured)`);
+            console.log(`   To enable AI insights, set these environment variables in Render Dashboard:`);
+            console.log(`   - AZURE_OPENAI_ENDPOINT`);
+            console.log(`   - AZURE_OPENAI_API_KEY`);
+            console.log(`   - AZURE_OPENAI_DEPLOYMENT (optional, default: gpt-35-turbo)`);
+            console.log(`   - AZURE_OPENAI_API_VERSION (optional, default: 2024-02-15-preview)`);
             return {
                 engagement_level: emailDoc.open.openCount > 0 ? "MEDIUM" : "LOW",
                 buyer_intent: emailDoc.reply.status === "REPLIED" ? "INTERESTED" : "UNKNOWN",
@@ -198,12 +223,27 @@ class EmailInsightService {
             const parsed = JSON.parse(jsonContent);
             const insight = parsed.email_insight as LatestEmailInsight;
             
+            // Validate required fields
+            if (!insight.engagement_level || !insight.buyer_intent || !insight.sentiment) {
+                throw new Error("AI response missing required fields");
+            }
+            
             console.log(`✅ AI insights generated successfully for email ${emailDoc.id}`);
-            console.log(`   Engagement: ${insight.engagement_level}, Intent: ${insight.buyer_intent}, Sentiment: ${insight.sentiment}`);
+            console.log(`   Engagement: ${insight.engagement_level}, Intent: ${insight.buyer_intent}, Sentiment: ${insight.sentiment}, Confidence: ${insight.confidence_score}`);
             
             return insight;
-        } catch (error) {
-            console.error(`⚠️ Error analyzing email ${emailDoc.id} with AI:`, error);
+        } catch (error: any) {
+            console.error(`⚠️ Error analyzing email ${emailDoc.id} with AI:`, error?.message || error);
+            if (error?.response?.status) {
+                console.error(`   HTTP Status: ${error.response.status}`);
+                console.error(`   Error Code: ${error.code || 'N/A'}`);
+            }
+            if (error?.message?.includes('401') || error?.message?.includes('authentication')) {
+                console.error(`   💡 Authentication error - check AZURE_OPENAI_API_KEY`);
+            }
+            if (error?.message?.includes('404') || error?.message?.includes('not found')) {
+                console.error(`   💡 Resource not found - check AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_DEPLOYMENT`);
+            }
             console.log(`📊 Falling back to DEFAULT insights for email ${emailDoc.id} due to AI error`);
             // Return default insights on error
             return {
