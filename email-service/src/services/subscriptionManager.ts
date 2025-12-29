@@ -4,7 +4,7 @@ import "isomorphic-fetch";
 
 let currentSubscriptionId: string | null = null;
 
-function getGraphClient(): Client {
+export function getGraphClient(): Client {
     const { CLIENT_ID, TENANT_ID, CLIENT_SECRET } = process.env;
 
     if (!CLIENT_ID || !TENANT_ID || !CLIENT_SECRET) {
