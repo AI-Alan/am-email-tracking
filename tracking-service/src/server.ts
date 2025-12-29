@@ -10,11 +10,14 @@ const BASE_URL = process.env.RENDER_EXTERNAL_URL || `http://localhost:${PORT}`;
 // Open tracking endpoint
 app.get("/open/:messageId.png", async (req: Request, res: Response) => {
     const { messageId } = req.params;
+    const userAgent = req.headers["user-agent"] || "unknown";
 
     console.log(`📧 Open tracking pixel requested for: ${messageId}`);
 
     // Track asynchronously - don't wait
-    handleEmailOpen(messageId).catch(() => { }); // Suppress errors
+    handleEmailOpen(messageId, userAgent).catch((err) => {
+        console.error("Open tracking error:", err);
+    }); // Log errors but don't break
 
     // Always return the image immediately
     res.setHeader("Content-Type", "image/png");

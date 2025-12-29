@@ -97,7 +97,13 @@ class EmailInsightService {
 
         try {
             const emailJson = JSON.stringify(emailDoc, null, 2);
+            // Replace the placeholder with actual email document JSON
             const userPrompt = USER_PROMPT_TEMPLATE.replace("{{email_document_json}}", emailJson);
+            
+            // Debug: Log if replacement worked (remove in production)
+            if (userPrompt.includes("{{email_document_json}}")) {
+                console.error(`⚠️ ERROR: Prompt placeholder not replaced for email ${emailDoc.id}`);
+            }
 
             const requestOptions: any = {
                 model: this.deployment,

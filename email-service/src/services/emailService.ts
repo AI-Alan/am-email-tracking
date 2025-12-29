@@ -26,6 +26,66 @@ const DEFAULT_EMAIL_BODY = (recipientName: string) => `
   </div>
 `;
 
+/**
+ * Convert plain text to HTML format
+ * Handles line breaks, URLs, and basic formatting
+ */
+function formatPlainTextToHTML(text: string, recipientName: string): string {
+  if (!text || text.trim().length === 0) {
+    return DEFAULT_EMAIL_BODY(recipientName);
+  }
+
+  // Escape HTML entities
+  const escapeHtml = (str: string) => {
+    return str
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  };
+
+  // Convert URLs to links
+  const urlRegex = /(https?:\/\/[^\s]+)/g;
+  const linkify = (text: string) => {
+    return text.replace(urlRegex, '<a href="$1" style="color: #0078d4; text-decoration: none;">$1</a>');
+  };
+
+  // Convert line breaks to paragraphs
+  const lines = text.split(/\n+/);
+  const paragraphs = lines
+    .map(line => line.trim())
+    .filter(line => line.length > 0)
+    .map(line => {
+      const escaped = escapeHtml(line);
+      const linked = linkify(escaped);
+      return `<p style="margin: 0 0 12px 0; line-height: 1.5;">${linked}</p>`;
+    });
+
+  // Build the HTML structure
+  const bodyContent = paragraphs.join('\n');
+
+  return `
+    <div style="font-family: Arial, sans-serif; color: #222; max-width: 600px;">
+      ${bodyContent}
+      <p style="margin: 20px 0 0 0; font-size: 1em; color: #222;">
+        <strong>Team Agent Mira</strong><br/>
+        <span style="font-size: 0.95em; color: #555;">AI + Real Agents. On your side.</span>
+      </p>
+    </div>
+  `;
+}
+
+/**
+ * Check if text is HTML or plain text
+ */
+function isHTML(text: string): boolean {
+  if (!text) return false;
+  const trimmed = text.trim();
+  // Check for common HTML tags
+  return /<\/?[a-z][\s\S]*>/i.test(trimmed);
+}
+
 class EmailService {
   private client: Client;
   private senderEmail: string;
@@ -261,6 +321,7 @@ class EmailService {
 
   /**
    * Send email - main method that accepts email content
+   * Accepts both plain text and HTML. If plain text, converts to HTML format.
    * If no body is provided, uses a simple default template
    * Tracking pixel is automatically added to all emails
    */
@@ -280,8 +341,17 @@ class EmailService {
     // Use provided subject or default
     const emailSubject = subject || 'Message from Agent Mira';
 
-    // Use provided body or default template
-    const emailBody = body || DEFAULT_EMAIL_BODY(recipient.name);
+    // Format body: convert plain text to HTML if needed, or use default
+    let emailBody: string;
+    if (!body) {
+      emailBody = DEFAULT_EMAIL_BODY(recipient.name);
+    } else if (isHTML(body)) {
+      // Body is already HTML, use as is
+      emailBody = body;
+    } else {
+      // Body is plain text, convert to HTML
+      emailBody = formatPlainTextToHTML(body, recipient.name);
+    }
 
     // Use sendCustomEmail - tracking pixel will be automatically added
     return this.sendCustomEmail(recipient, emailSubject, emailBody);
