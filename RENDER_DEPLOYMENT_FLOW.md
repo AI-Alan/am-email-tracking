@@ -23,12 +23,16 @@ But email-service needs tracking-service URL, and both need to be deployed first
    COSMOS_KEY=...
    COSMOS_DATABASE_REALTOR_MANAGEMENT=...
    COSMOS_CONTAINER_EMAIL=...
+   COSMOS_CONTAINER_TRACKING_SUMMARY=trackingSummary
    CLIENT_ID=...
    TENANT_ID=...
    CLIENT_SECRET=...
    SENDER_EMAIL=...
    WEBHOOK_URL=https://agent-mira-email-service.onrender.com/graph/webhook
    TRACKING_SERVICE_URL=http://localhost:3001  # Temporary
+   AZURE_OPENAI_ENDPOINT=...  # Optional, for AI insights
+   AZURE_OPENAI_API_KEY=...   # Optional, for AI insights
+   AZURE_OPENAI_DEPLOYMENT=gpt-4  # Optional, for AI insights
    ```
 
 **Deploy Tracking Service:**
@@ -99,12 +103,16 @@ COSMOS_URI=https://your-cosmos-account.documents.azure.com:443/
 COSMOS_KEY=your-cosmos-key-here
 COSMOS_DATABASE_REALTOR_MANAGEMENT=RealtorManagementDB(realtor_and_above_access)
 COSMOS_CONTAINER_EMAIL=trackingData
+COSMOS_CONTAINER_TRACKING_SUMMARY=trackingSummary
 CLIENT_ID=your-client-id
 TENANT_ID=your-tenant-id
 CLIENT_SECRET=your-client-secret
 SENDER_EMAIL=your-email@domain.com
 WEBHOOK_URL=https://agent-mira-email-service.onrender.com/graph/webhook
 TRACKING_SERVICE_URL=https://agent-mira-tracking-service.onrender.com
+AZURE_OPENAI_ENDPOINT=https://your-openai-resource.openai.azure.com/
+AZURE_OPENAI_API_KEY=your-openai-api-key
+AZURE_OPENAI_DEPLOYMENT=gpt-4
 ```
 
 **Tracking Service:**

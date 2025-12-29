@@ -32,22 +32,35 @@ class DbService {
         const { COSMOS_URI, COSMOS_KEY, COSMOS_DATABASE_REALTOR_MANAGEMENT, COSMOS_CONTAINER_TRACKING_SUMMARY } = process.env;
 
         if (!COSMOS_URI || !COSMOS_KEY || !COSMOS_DATABASE_REALTOR_MANAGEMENT || !COSMOS_CONTAINER_TRACKING_SUMMARY) {
-            console.error("Missing Cosmos DB environment variables for tracking summary");
+            const missing = [];
+            if (!COSMOS_URI) missing.push("COSMOS_URI");
+            if (!COSMOS_KEY) missing.push("COSMOS_KEY");
+            if (!COSMOS_DATABASE_REALTOR_MANAGEMENT) missing.push("COSMOS_DATABASE_REALTOR_MANAGEMENT");
+            if (!COSMOS_CONTAINER_TRACKING_SUMMARY) missing.push("COSMOS_CONTAINER_TRACKING_SUMMARY");
+            
+            console.error(`❌ Missing Cosmos DB environment variables for tracking summary: ${missing.join(", ")}`);
+            this.summaryInitialized = true; // Mark as initialized to prevent repeated attempts
             return;
         }
 
-        const cosmosClient = new CosmosClient({ endpoint: COSMOS_URI, key: COSMOS_KEY });
-        this.summaryContainer = cosmosClient
-            .database(COSMOS_DATABASE_REALTOR_MANAGEMENT)
-            .container(COSMOS_CONTAINER_TRACKING_SUMMARY);
+        try {
+            const cosmosClient = new CosmosClient({ endpoint: COSMOS_URI, key: COSMOS_KEY });
+            this.summaryContainer = cosmosClient
+                .database(COSMOS_DATABASE_REALTOR_MANAGEMENT)
+                .container(COSMOS_CONTAINER_TRACKING_SUMMARY);
 
-        this.summaryInitialized = true;
+            this.summaryInitialized = true;
+            console.log(`✅ Summary container initialized: ${COSMOS_CONTAINER_TRACKING_SUMMARY}`);
+        } catch (error) {
+            console.error(`❌ Failed to initialize summary container:`, error);
+            this.summaryInitialized = true; // Mark as initialized to prevent repeated attempts
+        }
     }
 
     private getContainer(): Container {
         this.init();
         if (!this.container) {
-            throw new Error("Cosmos DB Container not initialized");
+            throw new Error("Cosmos DB Container not initialized. Check COSMOS_URI, COSMOS_KEY, COSMOS_DATABASE_REALTOR_MANAGEMENT, and COSMOS_CONTAINER_EMAIL environment variables.");
         }
         return this.container;
     }
@@ -55,7 +68,13 @@ class DbService {
     private getSummaryContainer(): Container {
         this.initSummaryContainer();
         if (!this.summaryContainer) {
-            throw new Error("Cosmos DB Summary Container not initialized");
+            const missing = [];
+            if (!process.env.COSMOS_URI) missing.push("COSMOS_URI");
+            if (!process.env.COSMOS_KEY) missing.push("COSMOS_KEY");
+            if (!process.env.COSMOS_DATABASE_REALTOR_MANAGEMENT) missing.push("COSMOS_DATABASE_REALTOR_MANAGEMENT");
+            if (!process.env.COSMOS_CONTAINER_TRACKING_SUMMARY) missing.push("COSMOS_CONTAINER_TRACKING_SUMMARY");
+            
+            throw new Error(`Cosmos DB Summary Container not initialized. Missing environment variables: ${missing.join(", ")}. Please set COSMOS_CONTAINER_TRACKING_SUMMARY in your environment.`);
         }
         return this.summaryContainer;
     }
