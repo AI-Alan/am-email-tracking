@@ -1,4 +1,4 @@
-import { AzureOpenAI } from "openai";
+import OpenAI from "openai";
 import { dbService } from "./dbService";
 import { EmailTracking } from "../types/tracking";
 import {
@@ -58,24 +58,57 @@ Return the response in the following JSON format ONLY:
 }`;
 
 class EmailInsightService {
-    private client: AzureOpenAI | null = null;
+    private client: OpenAI | null = null;
     private deployment: string;
+    private apiVersion: string = "2024-02-15-preview";
 
     constructor() {
         const endpoint = process.env.AZURE_OPENAI_ENDPOINT;
         const apiKey = process.env.AZURE_OPENAI_API_KEY;
-        const apiVersion = "2025-01-01-preview";
+        const apiVersionEnv = process.env.AZURE_OPENAI_API_VERSION;
         this.deployment = process.env.AZURE_OPENAI_DEPLOYMENT || "gpt-35-turbo";
+        
+        // Use environment API version if provided, otherwise use default
+        if (apiVersionEnv) {
+            this.apiVersion = apiVersionEnv;
+        }
 
-        if (endpoint && apiKey && apiKey !== "<REPLACE_WITH_YOUR_KEY_VALUE_HERE>") {
-            this.client = new AzureOpenAI({
-                endpoint,
-                apiKey,
-                apiVersion,
-                deployment: this.deployment
+        // Validate Azure OpenAI configuration
+        if (!endpoint || !apiKey) {
+            console.warn("⚠️ Azure OpenAI not configured. Missing required environment variables:");
+            if (!endpoint) console.warn("   - AZURE_OPENAI_ENDPOINT is missing");
+            if (!apiKey) console.warn("   - AZURE_OPENAI_API_KEY is missing");
+            console.warn("   Email insights will use default values.");
+            return;
+        }
+
+        // Check for placeholder values
+        if (apiKey === "<REPLACE_WITH_YOUR_KEY_VALUE_HERE>" || apiKey.trim() === "") {
+            console.warn("⚠️ Azure OpenAI API key is not set properly. Email insights will use default values.");
+            return;
+        }
+
+        // Clean endpoint (remove trailing slash if present)
+        const cleanEndpoint = endpoint.endsWith('/') ? endpoint.slice(0, -1) : endpoint;
+
+        try {
+            // Configure OpenAI client for Azure OpenAI
+            // Azure OpenAI requires baseURL with deployment and api-version query param
+            this.client = new OpenAI({
+                apiKey: apiKey,
+                baseURL: `${cleanEndpoint}/openai/deployments/${this.deployment}`,
+                defaultQuery: { 'api-version': this.apiVersion },
+                defaultHeaders: { 'api-key': apiKey },
             });
-        } else {
-            console.warn("⚠️ Azure OpenAI not configured. Email insights will use default values.");
+            
+            console.log(`✅ Azure OpenAI configured successfully`);
+            console.log(`   Endpoint: ${cleanEndpoint}`);
+            console.log(`   Deployment: ${this.deployment}`);
+            console.log(`   API Version: ${this.apiVersion}`);
+        } catch (error) {
+            console.error(`❌ Failed to initialize Azure OpenAI client:`, error);
+            console.warn("   Email insights will use default values.");
+            this.client = null;
         }
     }
 
@@ -85,6 +118,7 @@ class EmailInsightService {
     private async analyzeEmailWithAI(emailDoc: EmailTracking): Promise<LatestEmailInsight> {
         if (!this.client) {
             // Return default insights if OpenAI is not configured
+            console.log(`📊 Using DEFAULT insights for email ${emailDoc.id} (AI not configured)`);
             return {
                 engagement_level: emailDoc.open.openCount > 0 ? "MEDIUM" : "LOW",
                 buyer_intent: emailDoc.reply.status === "REPLIED" ? "INTERESTED" : "UNKNOWN",
@@ -96,6 +130,8 @@ class EmailInsightService {
         }
 
         try {
+            console.log(`🤖 Using AI INSIGHTS for email ${emailDoc.id} (Azure OpenAI)`);
+            
             const emailJson = JSON.stringify(emailDoc, null, 2);
             // Replace the placeholder with actual email document JSON
             const userPrompt = USER_PROMPT_TEMPLATE.replace("{{email_document_json}}", emailJson);
@@ -122,7 +158,12 @@ class EmailInsightService {
                 // If not supported, continue without it
             }
 
-            const response = await this.client.chat.completions.create(requestOptions);
+            // For Azure OpenAI, the model should be the deployment name (already set in baseURL)
+            // But we still need to specify it in the request
+            const response = await this.client.chat.completions.create({
+                ...requestOptions,
+                model: this.deployment
+            });
 
             const content = response.choices[0]?.message?.content;
             if (!content) {
@@ -137,9 +178,15 @@ class EmailInsightService {
             }
 
             const parsed = JSON.parse(jsonContent);
-            return parsed.email_insight as LatestEmailInsight;
+            const insight = parsed.email_insight as LatestEmailInsight;
+            
+            console.log(`✅ AI insights generated successfully for email ${emailDoc.id}`);
+            console.log(`   Engagement: ${insight.engagement_level}, Intent: ${insight.buyer_intent}, Sentiment: ${insight.sentiment}`);
+            
+            return insight;
         } catch (error) {
             console.error(`⚠️ Error analyzing email ${emailDoc.id} with AI:`, error);
+            console.log(`📊 Falling back to DEFAULT insights for email ${emailDoc.id} due to AI error`);
             // Return default insights on error
             return {
                 engagement_level: emailDoc.open.openCount > 0 ? "MEDIUM" : "LOW",
@@ -236,7 +283,7 @@ class EmailInsightService {
         console.log(`📊 Generating email insight for buyer_id: ${buyerId}`);
 
         // Fetch emails for this buyer (limited to last 100 for performance)
-        const emails = await dbService.getEmailsByBuyerId(buyerId, 100);
+        const emails = await dbService.getEmailsByBuyerId(buyerId, 10);
         if (emails.length === 0) {
             throw new Error(`No emails found for buyer_id: ${buyerId}`);
         }
@@ -251,7 +298,14 @@ class EmailInsightService {
         const latestEmail = emails[0];
         console.log(`📧 Latest email ID: ${latestEmail.id}, sentAt: ${latestEmail.sent.sentAt}`);
         
-        // Analyze latest email with AI
+        // Log insight source at the start
+        if (this.client) {
+            console.log(`🤖 AI-powered insights enabled - analyzing with Azure OpenAI`);
+        } else {
+            console.log(`📊 AI insights disabled - using default rule-based insights`);
+        }
+        
+        // Analyze latest email with AI (or default)
         const latestEmailInsight = await this.analyzeEmailWithAI(latestEmail);
 
         // Build email history (limit to last 50 for history to avoid large payloads)
@@ -286,7 +340,11 @@ class EmailInsightService {
         // Save to database
         await dbService.saveTrackingSummary(trackingSummary);
 
+        // Log summary of insight type used
+        const insightType = this.client ? "AI-powered" : "default rule-based";
         console.log(`✅ Email insight updated for buyer_id: ${buyerId}`);
+        console.log(`📊 Insight Summary: ${insightType} insights | Engagement: ${latestEmailInsight.engagement_level} | Intent: ${latestEmailInsight.buyer_intent} | Confidence: ${latestEmailInsight.confidence_score}`);
+        
         return trackingSummary;
     }
 }
