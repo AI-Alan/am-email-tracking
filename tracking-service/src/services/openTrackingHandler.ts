@@ -34,36 +34,37 @@ export async function handleEmailOpen(messageId: string, userAgent?: string): Pr
 
         const resource: EmailTracking = resources[0];
         const now = new Date().toISOString();
-        const updates: PatchOperation[] = [];
+        const updates: any[] = [];
 
         // Update lifecycle status to OPENED if it was just SENT
         if (resource.lifecycleStatus === LifecycleStatus.SENT) {
-            updates.push({ op: "set", path: "/lifecycleStatus", value: LifecycleStatus.OPENED });
+            updates.push({ op: "set" as const, path: "/lifecycleStatus", value: LifecycleStatus.OPENED });
         }
 
         // Use new structure: open.openCount, open.firstOpenedAt, open.lastOpenedAt
         const currentOpenCount = resource.open?.openCount || 0;
         const newOpenCount = currentOpenCount + 1;
         
-        updates.push({ op: "set", path: "/open/openCount", value: newOpenCount });
+        updates.push({ op: "set" as const, path: "/open/openCount", value: newOpenCount });
 
         // Set firstOpenedAt only on first open
         if (!resource.open?.firstOpenedAt) {
-            updates.push({ op: "set", path: "/open/firstOpenedAt", value: now });
+            updates.push({ op: "set" as const, path: "/open/firstOpenedAt", value: now });
         }
         
         // Always update lastOpenedAt
-        updates.push({ op: "set", path: "/open/lastOpenedAt", value: now });
+        updates.push({ op: "set" as const, path: "/open/lastOpenedAt", value: now });
 
         // Update uniqueUserAgents (simple logic)
         if (currentOpenCount === 0) {
-            updates.push({ op: "set", path: "/open/uniqueUserAgents", value: 1 });
+            updates.push({ op: "set" as const, path: "/open/uniqueUserAgents", value: 1 });
         }
 
         // Update updatedAt
-        updates.push({ op: "set", path: "/updatedAt", value: now });
+        updates.push({ op: "set" as const, path: "/updatedAt", value: now });
 
-        await container.item(messageId, resource.userId).patch(updates);
+        // Use messageId (which is the document id) and userId (partition key)
+        await container.item(resource.id, resource.userId).patch(updates);
         console.log(`📧 Email opened: ${messageId} (count: ${newOpenCount})`);
     } catch (error) {
         // Fail silently - never break the tracking pixel

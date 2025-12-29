@@ -144,42 +144,95 @@ class EmailService {
   /**
    * Fetch Graph API message details from Sent Items
    * Retrieves messageId, conversationId, and internetMessageId after sending
+   * Retries up to 3 times with increasing delays
    */
-  private async fetchGraphMessageDetails(internalMessageId: string): Promise<{
+  private async fetchGraphMessageDetails(internalMessageId: string, userId: string): Promise<{
     messageId?: string;
     conversationId?: string;
     internetMessageId?: string;
   }> {
-    try {
-      // Wait a bit for the message to appear in Sent Items
-      await new Promise(resolve => setTimeout(resolve, 2000));
+    const maxRetries = 3;
+    const initialDelay = 3000; // Start with 3 seconds
 
-      // Query Sent Items for the message with our custom header
-      const result = await this.client
-        .api(`/users/${this.senderEmail}/mailFolders/SentItems/messages`)
-        .filter(`internetMessageHeaders/any(x:x/name eq 'X-AgentMira-Message-Id' and x/value eq '${internalMessageId}')`)
-        .orderby('sentDateTime desc')
-        .top(1)
-        .select('id,conversationId,internetMessageId')
-        .get();
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        // Wait for the message to appear in Sent Items (increasing delay)
+        const delay = initialDelay * attempt;
+        await new Promise(resolve => setTimeout(resolve, delay));
 
-      if (result.value && result.value.length > 0) {
-        const message = result.value[0];
-        console.log(`📋 Retrieved Graph API details for ${internalMessageId}`);
-        return {
-          messageId: message.id,
-          conversationId: message.conversationId,
-          internetMessageId: message.internetMessageId
-        };
+        console.log(`🔍 Attempting to fetch Graph details (attempt ${attempt}/${maxRetries})...`);
+
+        // Query Sent Items for the message with our custom header
+        const result = await this.client
+          .api(`/users/${this.senderEmail}/mailFolders/SentItems/messages`)
+          .filter(`internetMessageHeaders/any(x:x/name eq 'X-AgentMira-Message-Id' and x/value eq '${internalMessageId}')`)
+          .orderby('sentDateTime desc')
+          .top(1)
+          .select('id,conversationId,internetMessageId')
+          .get();
+
+        if (result.value && result.value.length > 0) {
+          const message = result.value[0];
+          const graphDetails = {
+            messageId: message.id,
+            conversationId: message.conversationId,
+            internetMessageId: message.internetMessageId
+          };
+          
+          console.log(`✅ Retrieved Graph API details for ${internalMessageId}:`, graphDetails);
+          
+          // Update the document in Cosmos DB with Graph details
+          await this.updateGraphDetailsInDB(internalMessageId, userId, graphDetails);
+          
+          return graphDetails;
+        } else {
+          console.warn(`⚠️ Message not found in Sent Items (attempt ${attempt}/${maxRetries})`);
+        }
+      } catch (error: any) {
+        console.warn(`⚠️ Error fetching Graph details (attempt ${attempt}/${maxRetries}):`, error?.message || error);
+        if (attempt === maxRetries) {
+          console.error(`❌ Failed to fetch Graph details after ${maxRetries} attempts`);
+        }
       }
-    } catch (error) {
-      console.warn(`⚠️ Could not fetch Graph message details for ${internalMessageId}:`, error);
     }
+    
     return {};
   }
 
   /**
+   * Update Graph API details in the tracking document
+   */
+  private async updateGraphDetailsInDB(
+    messageId: string,
+    userId: string,
+    graphDetails: { messageId?: string; conversationId?: string; internetMessageId?: string }
+  ): Promise<void> {
+    try {
+      const updates: any[] = [];
+      
+      if (graphDetails.messageId) {
+        updates.push({ op: "set" as const, path: "/graph/messageId", value: graphDetails.messageId });
+      }
+      if (graphDetails.conversationId) {
+        updates.push({ op: "set" as const, path: "/graph/conversationId", value: graphDetails.conversationId });
+      }
+      if (graphDetails.internetMessageId) {
+        updates.push({ op: "set" as const, path: "/graph/internetMessageId", value: graphDetails.internetMessageId });
+      }
+      
+      if (updates.length > 0) {
+        updates.push({ op: "set" as const, path: "/updatedAt", value: new Date().toISOString() });
+        await dbService.patchTrackingData(messageId, userId, updates);
+        console.log(`✅ Updated Graph details in database for ${messageId}`);
+      }
+    } catch (error) {
+      console.error(`⚠️ Failed to update Graph details in database:`, error);
+    }
+  }
+
+  /**
    * Log email attempt to Cosmos DB with new structured format
+   * Graph details are fetched and updated separately after sending
    */
   private async logEmailToCosmosDB(
     messageId: string,
@@ -188,8 +241,7 @@ class EmailService {
     status: 'SENT' | 'FAILED',
     errorMessage?: string,
     templateName?: string,
-    bodyHtml?: string,
-    graphDetails?: { messageId?: string; conversationId?: string; internetMessageId?: string }
+    bodyHtml?: string
   ): Promise<void> {
     try {
       const now = new Date().toISOString();
@@ -211,9 +263,9 @@ class EmailService {
           templateId: templateName,
         },
         graph: {
-          messageId: graphDetails?.messageId || "",
-          conversationId: graphDetails?.conversationId,
-          internetMessageId: graphDetails?.internetMessageId,
+          messageId: "", // Will be updated by fetchGraphMessageDetails
+          conversationId: undefined,
+          internetMessageId: undefined,
         },
         sent: {
           status: status as any,
@@ -287,10 +339,7 @@ class EmailService {
 
       console.log(`✅ Custom email sent successfully to ${recipient.email} [${messageId}]`);
 
-      // Fetch Graph API message details from Sent Items
-      const graphDetails = await this.fetchGraphMessageDetails(messageId);
-
-      // Log successful send to Cosmos DB with Graph details and body
+      // Log email to Cosmos DB first (Graph details might not be available immediately)
       await this.logEmailToCosmosDB(
         messageId, 
         recipient, 
@@ -298,9 +347,14 @@ class EmailService {
         'SENT',
         undefined,
         undefined, // No template name for custom emails
-        bodyWithTracking, // Store body with tracking pixel
-        graphDetails
+        bodyWithTracking // Store body with tracking pixel
       );
+
+      // Fetch Graph API message details from Sent Items and update the document
+      // This runs asynchronously and updates the document when details are available
+      this.fetchGraphMessageDetails(messageId, recipient.user_id || recipient.email).catch(err => {
+        console.error(`Failed to fetch/update Graph details:`, err);
+      });
 
       return true;
     } catch (error) {
