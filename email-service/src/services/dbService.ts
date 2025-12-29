@@ -131,6 +131,58 @@ class DbService {
     }
 
     /**
+     * Find tracking data by Graph API internetMessageId (used for matching replies)
+     */
+    async findTrackingDataByInternetMessageId(internetMessageId: string): Promise<EmailTracking | null> {
+        try {
+            const container = this.getContainer();
+            const query = `SELECT * FROM c WHERE c.graph.internetMessageId = @internetMessageId`;
+            const { resources } = await container.items
+                .query({
+                    query,
+                    parameters: [{ name: "@internetMessageId", value: internetMessageId }]
+                })
+                .fetchAll();
+
+            return resources?.[0] || null;
+        } catch (error) {
+            console.error(`⚠️ Failed to find tracking data by internetMessageId ${internetMessageId}:`, error);
+            return null;
+        }
+    }
+
+    /**
+     * Find tracking data by Graph API conversationId (used for matching replies in same thread)
+     */
+    async findTrackingDataByConversationId(conversationId: string, recipientEmail?: string): Promise<EmailTracking | null> {
+        try {
+            const container = this.getContainer();
+            let query = `SELECT * FROM c WHERE c.graph.conversationId = @conversationId`;
+            const parameters: any[] = [{ name: "@conversationId", value: conversationId }];
+            
+            // If recipient email is provided, also filter by recipient to ensure correct match
+            if (recipientEmail) {
+                query += ` AND c.recipient.email = @recipientEmail`;
+                parameters.push({ name: "@recipientEmail", value: recipientEmail });
+            }
+            
+            query += ` ORDER BY c.sent.sentAt DESC OFFSET 0 LIMIT 1`;
+            
+            const { resources } = await container.items
+                .query({
+                    query,
+                    parameters
+                })
+                .fetchAll();
+
+            return resources?.[0] || null;
+        } catch (error) {
+            console.error(`⚠️ Failed to find tracking data by conversationId ${conversationId}:`, error);
+            return null;
+        }
+    }
+
+    /**
      * Patch a tracking document
      */
     async patchTrackingData(id: string, userId: string, operations: PatchOperation[]): Promise<void> {
@@ -150,32 +202,84 @@ class DbService {
 
     /**
      * Query email tracking data for a specific user_id
+     * Optimized to prefer emails with Graph API data (messageId) for better analysis
+     * Groups by conversationId for thread-level insights
      * Fetches emails where user_id matches (partition key)
      * Sorted by sentAt DESC (most recent first)
      * Limited to last 100 emails for performance
      */
-    async getEmailsByBuyerId(buyerId: string, limit: number = 100): Promise<EmailTracking[]> {
+    async getEmailsByBuyerId(buyerId: string, limit: number = 100, preferGraphData: boolean = true): Promise<EmailTracking[]> {
         try {
             const container = this.getContainer();
-            // Query by user_id (partition key)
-            // Cosmos DB LIMIT uses TOP in SQL, and limit parameter in query options
-            const query = `SELECT * FROM c WHERE c.user_id = @buyerId ORDER BY c.sent.sentAt DESC`;
+            
+            // Query by user_id (partition key) - prefer emails with Graph API data
+            // Graph data indicates complete metadata and better analysis quality
+            let query = `SELECT * FROM c WHERE c.user_id = @buyerId`;
+            const parameters: any[] = [{ name: "@buyerId", value: buyerId }];
+            
+            if (preferGraphData) {
+                // Prefer emails with Graph messageId (complete metadata)
+                // Still include recent emails without Graph data (they might be < 30s old)
+                const recentThreshold = new Date(Date.now() - 60000).toISOString(); // 1 minute ago
+                query += ` AND (c.graph.messageId != '' AND c.graph.messageId != null OR c.sent.sentAt > @recentThreshold)`;
+                parameters.push({ name: "@recentThreshold", value: recentThreshold });
+            }
+            
+            query += ` ORDER BY c.sent.sentAt DESC`;
+            
             const { resources } = await container.items
                 .query(
                     {
                         query,
-                        parameters: [{ name: "@buyerId", value: buyerId }]
+                        parameters
                     },
                     {
-                        maxItemCount: limit
+                        maxItemCount: limit * 2 // Fetch more to allow filtering/grouping
                     }
                 )
                 .fetchAll();
 
-            // Limit to requested number (fetchAll might return more if maxItemCount is exceeded)
-            const limitedResources = (resources || []).slice(0, limit);
+            // Group by conversationId for thread-level analysis
+            const conversationMap = new Map<string, EmailTracking[]>();
+            const standaloneEmails: EmailTracking[] = [];
             
-            console.log(`📧 Found ${limitedResources.length} emails for buyer_id: ${buyerId} (out of ${resources?.length || 0} total)`);
+            for (const email of resources || []) {
+                if (email.graph?.conversationId) {
+                    const convId = email.graph.conversationId;
+                    if (!conversationMap.has(convId)) {
+                        conversationMap.set(convId, []);
+                    }
+                    conversationMap.get(convId)!.push(email);
+                } else {
+                    // Emails without conversationId are treated as standalone
+                    standaloneEmails.push(email);
+                }
+            }
+            
+            // For each conversation thread, take the latest email (most recent by sentAt)
+            // This gives us one representative email per conversation
+            const threadRepresentatives: EmailTracking[] = [];
+            for (const [convId, emails] of conversationMap.entries()) {
+                // Sort by sentAt DESC and take the latest
+                emails.sort((a, b) => 
+                    new Date(b.sent.sentAt).getTime() - new Date(a.sent.sentAt).getTime()
+                );
+                const latestInThread = emails[0];
+                threadRepresentatives.push(latestInThread);
+            }
+            
+            // Combine thread representatives with standalone emails
+            const allEmails = [...threadRepresentatives, ...standaloneEmails];
+            
+            // Sort all by sentAt DESC
+            allEmails.sort((a, b) => 
+                new Date(b.sent.sentAt).getTime() - new Date(a.sent.sentAt).getTime()
+            );
+            
+            // Limit to requested number
+            const limitedResources = allEmails.slice(0, limit);
+            
+            console.log(`📧 Found ${limitedResources.length} emails for user_id: ${buyerId} (${conversationMap.size} threads, ${standaloneEmails.length} standalone, out of ${resources?.length || 0} total)`);
             return limitedResources;
         } catch (error) {
             console.error(`⚠️ Failed to query emails for buyer_id ${buyerId}:`, error);

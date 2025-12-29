@@ -300,21 +300,27 @@ class EmailInsightService {
     async generateTrackingSummary(userId: string): Promise<TrackingSummary> {
         console.log(`📊 Generating email insight for user_id: ${userId}`);
 
-        // Fetch emails for this user (limited to last 100 for performance)
-        const emails = await dbService.getEmailsByBuyerId(userId, 10);
+        // Fetch emails for this user with conversation thread grouping
+        // preferGraphData=true ensures we analyze emails with complete Graph API metadata
+        const emails = await dbService.getEmailsByBuyerId(userId, 10, true);
         if (emails.length === 0) {
             throw new Error(`No emails found for user_id: ${userId}`);
         }
 
-        console.log(`📊 Processing ${emails.length} emails for user_id: ${userId}`);
+        console.log(`📊 Processing ${emails.length} emails for user_id: ${userId} (already grouped by conversation threads)`);
 
         // Calculate summary statistics from all fetched emails
+        // These are already optimized: one email per conversation thread + standalone emails
         const summary = this.calculateSummary(emails);
 
         // Get latest email (first in array since sorted DESC by sentAt)
-        // This is the most recent email based on sentAt timestamp
+        // This is the most recent email from the most recent conversation thread
         const latestEmail = emails[0];
-        console.log(`📧 Latest email ID: ${latestEmail.id}, sentAt: ${latestEmail.sent.sentAt}`);
+        const hasGraphData = latestEmail.graph?.messageId && latestEmail.graph.messageId !== '';
+        console.log(`📧 Latest email ID: ${latestEmail.id}, sentAt: ${latestEmail.sent.sentAt}, hasGraphData: ${hasGraphData}`);
+        if (latestEmail.graph?.conversationId) {
+            console.log(`   Conversation thread: ${latestEmail.graph.conversationId}`);
+        }
         
         // Log insight source at the start
         if (this.client) {

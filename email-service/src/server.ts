@@ -6,6 +6,7 @@ import { handleEmailDelivery } from "./services/deliveryTrackingHandler";
 import { handleEmailOpen } from "./services/openTrackingHandler";
 import { initializeSubscription } from "./services/subscriptionManager";
 import { emailInsightService } from "./services/emailInsightService";
+import { dbService } from "./services/dbService";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -145,11 +146,44 @@ async function processInboxMessage(notification: any): Promise<void> {
         }
 
         // Otherwise, treat as a reply
-        if (!fromEmail) return;
+        if (!fromEmail) {
+            console.log(`⚠️ No fromEmail found in webhook notification, skipping reply processing`);
+            return;
+        }
 
-        const messageId = internetMessageHeaders.find(
+        // Try to match the original email using multiple methods:
+        // 1. First try custom header (for delivery receipts that might include it)
+        let messageId = internetMessageHeaders.find(
             (h: any) => h.name === "X-AgentMira-Message-Id"
         )?.value;
+
+        // 2. If not found, try matching by In-Reply-To header (contains internetMessageId of original)
+        if (!messageId) {
+            const inReplyTo = internetMessageHeaders.find(
+                (h: any) => h.name === "In-Reply-To"
+            )?.value;
+            
+            if (inReplyTo) {
+                // In-Reply-To contains the internetMessageId in angle brackets: <message-id>
+                const internetMessageId = inReplyTo.replace(/[<>]/g, '');
+                console.log(`🔍 Matching reply by In-Reply-To header: ${internetMessageId}`);
+                const trackingDoc = await dbService.findTrackingDataByInternetMessageId(internetMessageId);
+                if (trackingDoc) {
+                    messageId = trackingDoc.id;
+                    console.log(`✅ Matched reply to original email: ${messageId}`);
+                }
+            }
+        }
+
+        // 3. If still not found, try matching by conversationId
+        if (!messageId && resourceData.conversationId) {
+            console.log(`🔍 Matching reply by conversationId: ${resourceData.conversationId}`);
+            const trackingDoc = await dbService.findTrackingDataByConversationId(resourceData.conversationId, fromEmail);
+            if (trackingDoc) {
+                messageId = trackingDoc.id;
+                console.log(`✅ Matched reply to original email by conversation: ${messageId}`);
+            }
+        }
 
         if (messageId) {
             // Extract additional reply details from webhook data
@@ -176,6 +210,9 @@ async function processInboxMessage(notification: any): Promise<void> {
                 replySnippet,
                 isAutoReply
             );
+        } else {
+            console.warn(`⚠️ Could not match reply to original email. Subject: "${subject}", From: ${fromEmail}`);
+            console.warn(`   Headers:`, internetMessageHeaders.map((h: any) => `${h.name}: ${h.value}`).join(', '));
         }
     } catch (error) {
         // Fail silently
