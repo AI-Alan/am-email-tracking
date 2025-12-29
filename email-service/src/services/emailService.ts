@@ -3,7 +3,7 @@ import { ClientSecretCredential } from "@azure/identity";
 import { randomUUID } from "crypto";
 import "isomorphic-fetch";
 import { dbService } from "./dbService";
-import { EmailTracking, LifecycleStatus } from "../types/tracking";
+import { EmailTracking, LifecycleStatus } from "../types/emailTracking";
 
 // Email log model for Cosmos DB tracking
 // Replaced by EmailTracking from ../types/tracking.ts
@@ -303,7 +303,6 @@ class EmailService {
 
       const emailLog: EmailTracking = {
         id: messageId,
-        userId: recipient.user_id || recipient.email,
         user_id: recipient.user_id || recipient.email, // Partition key field (must match Cosmos DB partition key path /user_id)
         channel: "EMAIL",
         provider: "MICROSOFT_GRAPH",

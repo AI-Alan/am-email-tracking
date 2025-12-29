@@ -1,5 +1,5 @@
 import { dbService } from "./dbService";
-import { LifecycleStatus } from "../types/tracking";
+import { LifecycleStatus } from "../types/emailTracking";
 
 // Pure logic handler for reply tracking - no Express dependencies
 export async function handleEmailReply(
@@ -39,8 +39,8 @@ export async function handleEmailReply(
             updates.push({ op: "set", path: "/reply/isAutoReply", value: isAutoReply });
         }
 
-        // Use user_id (partition key) if available, fallback to userId
-        const partitionKey = (resource as any).user_id || resource.userId;
+        // Use user_id (partition key)
+        const partitionKey = resource.user_id;
         await dbService.patchTrackingData(messageId, partitionKey, updates);
         console.log(`💬 Reply tracked: ${messageId} from ${fromEmail}${replyMessageId ? ` [Reply ID: ${replyMessageId}]` : ''}`);
     } catch (error) {

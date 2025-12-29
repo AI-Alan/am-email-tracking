@@ -1,6 +1,6 @@
 import OpenAI from "openai";
 import { dbService } from "./dbService";
-import { EmailTracking } from "../types/tracking";
+import { EmailTracking } from "../types/emailTracking";
 import {
     TrackingSummary,
     EmailInsight,
@@ -73,41 +73,59 @@ class EmailInsightService {
             this.apiVersion = apiVersionEnv;
         }
 
-        // Validate Azure OpenAI configuration
-        if (!endpoint || !apiKey) {
+        // Validate Azure OpenAI configuration with detailed logging
+        const missingVars: string[] = [];
+        if (!endpoint || (typeof endpoint === 'string' && endpoint.trim() === "")) {
+            missingVars.push("AZURE_OPENAI_ENDPOINT");
+        }
+        if (!apiKey || (typeof apiKey === 'string' && apiKey.trim() === "")) {
+            missingVars.push("AZURE_OPENAI_API_KEY");
+        }
+
+        if (missingVars.length > 0) {
             console.warn("⚠️ Azure OpenAI not configured. Missing required environment variables:");
-            if (!endpoint) console.warn("   - AZURE_OPENAI_ENDPOINT is missing");
-            if (!apiKey) console.warn("   - AZURE_OPENAI_API_KEY is missing");
-            console.warn("   Email insights will use default values.");
+            missingVars.forEach(v => console.warn(`   - ${v} is missing or empty`));
+            console.warn("   Email insights will use default rule-based values.");
+            console.warn(`   Current AZURE_OPENAI_ENDPOINT: ${endpoint ? `SET (${endpoint.substring(0, 20)}...)` : 'NOT SET'}`);
+            console.warn(`   Current AZURE_OPENAI_API_KEY: ${apiKey ? 'SET (length: ' + apiKey.length + ')' : 'NOT SET'}`);
+            console.warn(`   Current AZURE_OPENAI_DEPLOYMENT: ${this.deployment}`);
+            console.warn(`   Current AZURE_OPENAI_API_VERSION: ${this.apiVersion}`);
+            console.warn(`   Action: Add these variables to Render Dashboard → Environment → Environment Variables`);
             return;
         }
 
+        // At this point, endpoint and apiKey are guaranteed to be non-empty strings
+        // TypeScript assertion: we've validated above that they exist
+        const validEndpoint = endpoint as string;
+        const validApiKey = apiKey as string;
+
         // Check for placeholder values
-        if (apiKey === "<REPLACE_WITH_YOUR_KEY_VALUE_HERE>" || apiKey.trim() === "") {
-            console.warn("⚠️ Azure OpenAI API key is not set properly. Email insights will use default values.");
+        if (validApiKey === "<REPLACE_WITH_YOUR_KEY_VALUE_HERE>" || validApiKey.trim() === "") {
+            console.warn("⚠️ Azure OpenAI API key is not set properly (contains placeholder). Email insights will use default values.");
             return;
         }
 
         // Clean endpoint (remove trailing slash if present)
-        const cleanEndpoint = endpoint.endsWith('/') ? endpoint.slice(0, -1) : endpoint;
+        const cleanEndpoint = validEndpoint.endsWith('/') ? validEndpoint.slice(0, -1) : validEndpoint;
 
         try {
             // Configure OpenAI client for Azure OpenAI
             // Azure OpenAI requires baseURL with deployment and api-version query param
             this.client = new OpenAI({
-                apiKey: apiKey,
+                apiKey: validApiKey,
                 baseURL: `${cleanEndpoint}/openai/deployments/${this.deployment}`,
                 defaultQuery: { 'api-version': this.apiVersion },
-                defaultHeaders: { 'api-key': apiKey },
+                defaultHeaders: { 'api-key': validApiKey },
             });
             
             console.log(`✅ Azure OpenAI configured successfully`);
             console.log(`   Endpoint: ${cleanEndpoint}`);
             console.log(`   Deployment: ${this.deployment}`);
             console.log(`   API Version: ${this.apiVersion}`);
+            console.log(`   Base URL: ${cleanEndpoint}/openai/deployments/${this.deployment}`);
         } catch (error) {
             console.error(`❌ Failed to initialize Azure OpenAI client:`, error);
-            console.warn("   Email insights will use default values.");
+            console.warn("   Email insights will use default rule-based values.");
             this.client = null;
         }
     }
@@ -276,19 +294,19 @@ class EmailInsightService {
     }
 
     /**
-     * Generate email insight and append/update it in tracking summary for a buyer_id
+     * Generate email insight and append/update it in tracking summary for a user_id
      * Only updates email_insight, preserves other insights (call_insight, whatsapp_insight, overall_buyer_profile)
      */
-    async generateTrackingSummary(buyerId: string): Promise<TrackingSummary> {
-        console.log(`📊 Generating email insight for buyer_id: ${buyerId}`);
+    async generateTrackingSummary(userId: string): Promise<TrackingSummary> {
+        console.log(`📊 Generating email insight for user_id: ${userId}`);
 
-        // Fetch emails for this buyer (limited to last 100 for performance)
-        const emails = await dbService.getEmailsByBuyerId(buyerId, 10);
+        // Fetch emails for this user (limited to last 100 for performance)
+        const emails = await dbService.getEmailsByBuyerId(userId, 10);
         if (emails.length === 0) {
-            throw new Error(`No emails found for buyer_id: ${buyerId}`);
+            throw new Error(`No emails found for user_id: ${userId}`);
         }
 
-        console.log(`📊 Processing ${emails.length} emails for buyer_id: ${buyerId}`);
+        console.log(`📊 Processing ${emails.length} emails for user_id: ${userId}`);
 
         // Calculate summary statistics from all fetched emails
         const summary = this.calculateSummary(emails);
@@ -320,11 +338,13 @@ class EmailInsightService {
         };
 
         // Get existing summary to preserve other insights
-        const existingSummary = await dbService.getTrackingSummary(buyerId);
+        const existingSummary = await dbService.getTrackingSummary(userId);
 
         // Build tracking summary: only update email_insight, preserve everything else
+        // Use user_id as document id for consistent upsert (one document per user)
         const trackingSummary: TrackingSummary = {
-            buyer_id: buyerId,
+            id: userId, // Use user_id as document id for upsert to work correctly
+            user_id: userId, // Changed from buyer_id for consistency
             email_insight: emailInsight, // Only field we update
             call_insight: existingSummary?.call_insight, // Preserve if exists
             whatsapp_insight: existingSummary?.whatsapp_insight, // Preserve if exists
@@ -342,7 +362,7 @@ class EmailInsightService {
 
         // Log summary of insight type used
         const insightType = this.client ? "AI-powered" : "default rule-based";
-        console.log(`✅ Email insight updated for buyer_id: ${buyerId}`);
+        console.log(`✅ Email insight updated for user_id: ${userId}`);
         console.log(`📊 Insight Summary: ${insightType} insights | Engagement: ${latestEmailInsight.engagement_level} | Intent: ${latestEmailInsight.buyer_intent} | Confidence: ${latestEmailInsight.confidence_score}`);
         
         return trackingSummary;

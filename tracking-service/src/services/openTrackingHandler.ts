@@ -1,5 +1,5 @@
 import { CosmosClient, PatchOperation } from "@azure/cosmos";
-import { EmailTracking, LifecycleStatus } from "../types/tracking";
+import { EmailTracking, LifecycleStatus } from "../types/emailTracking";
 
 // Pure logic handler - no Express dependencies
 export async function handleEmailOpen(messageId: string, userAgent?: string): Promise<void> {
@@ -34,11 +34,11 @@ export async function handleEmailOpen(messageId: string, userAgent?: string): Pr
 
         const resource: EmailTracking = resources[0];
         
-        // Get partition key value - use user_id if available, fallback to userId
-        const partitionKeyValue = resource.user_id || resource.userId;
+        // Get partition key value - use user_id
+        const partitionKeyValue = resource.user_id;
         
         if (!partitionKeyValue) {
-            console.error(`⚠️ No partition key (user_id/userId) found for messageId: ${messageId}`);
+            console.error(`⚠️ No partition key (user_id) found for messageId: ${messageId}`);
             return;
         }
 

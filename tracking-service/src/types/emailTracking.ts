@@ -54,7 +54,6 @@ export interface ForwardingDetails {
 
 export interface EmailTracking {
     id: string; // Internal messageId (UUID)
-    userId: string; // User ID field
     user_id: string; // Partition key (must match Cosmos DB partition key path /user_id)
     channel: "EMAIL";
     provider: "MICROSOFT_GRAPH";

@@ -1,5 +1,5 @@
 import { dbService } from "./dbService";
-import { LifecycleStatus } from "../types/tracking";
+import { LifecycleStatus } from "../types/emailTracking";
 
 export async function handleEmailOpen(
     messageId: string,
@@ -36,8 +36,8 @@ export async function handleEmailOpen(
             updates.push({ op: "set", path: "/open/uniqueUserAgents", value: 1 });
         }
 
-        // Use user_id (partition key) if available, fallback to userId
-        const partitionKey = (resource as any).user_id || resource.userId;
+        // Use user_id (partition key)
+        const partitionKey = resource.user_id;
         await dbService.patchTrackingData(messageId, partitionKey, updates);
     } catch (error) {
         console.error("Open tracking failed:", error);

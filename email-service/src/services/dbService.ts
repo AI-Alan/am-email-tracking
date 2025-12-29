@@ -1,5 +1,5 @@
 import { CosmosClient, Container, PatchOperation } from "@azure/cosmos";
-import { EmailTracking } from "../types/tracking";
+import { EmailTracking } from "../types/emailTracking";
 import { TrackingSummary } from "../types/trackingSummary";
 
 class DbService {
@@ -94,8 +94,8 @@ class DbService {
     }
 
     /**
-     * Retrieve tracking data by ID and userId (partition key)
-     * userId here refers to the partition key value (which may be stored as user_id in Cosmos DB)
+     * Retrieve tracking data by ID and user_id (partition key)
+     * user_id is the partition key value
      */
     async getTrackingData(id: string, userId: string): Promise<EmailTracking | null> {
         try {
@@ -110,7 +110,7 @@ class DbService {
     }
 
     /**
-     * Retrieve tracking data by ID using a query (when userId is unknown)
+     * Retrieve tracking data by ID using a query (when user_id is unknown)
      */
     async findTrackingDataById(id: string): Promise<EmailTracking | null> {
         try {
@@ -149,17 +149,17 @@ class DbService {
     }
 
     /**
-     * Query email tracking data for a specific buyer_id (userId)
-     * Fetches emails where userId OR user_id matches (handles both old and new documents)
+     * Query email tracking data for a specific user_id
+     * Fetches emails where user_id matches (partition key)
      * Sorted by sentAt DESC (most recent first)
      * Limited to last 100 emails for performance
      */
     async getEmailsByBuyerId(buyerId: string, limit: number = 100): Promise<EmailTracking[]> {
         try {
             const container = this.getContainer();
-            // Query for both userId and user_id to handle documents saved with either field
+            // Query by user_id (partition key)
             // Cosmos DB LIMIT uses TOP in SQL, and limit parameter in query options
-            const query = `SELECT * FROM c WHERE (c.userId = @buyerId OR c.user_id = @buyerId) ORDER BY c.sent.sentAt DESC`;
+            const query = `SELECT * FROM c WHERE c.user_id = @buyerId ORDER BY c.sent.sentAt DESC`;
             const { resources } = await container.items
                 .query(
                     {
@@ -185,35 +185,88 @@ class DbService {
 
     /**
      * Save or update tracking summary document
+     * Uses user_id as document id to ensure one document per user (upsert behavior)
      */
     async saveTrackingSummary(summary: TrackingSummary): Promise<void> {
         try {
             const container = this.getSummaryContainer();
+            
+            // Ensure id is set to user_id for consistent upsert
+            if (!summary.id) {
+                summary.id = summary.user_id;
+            }
+            
+            // Upsert will update existing document if id matches, or create new one
+            // Partition key is user_id, so we pass user_id as partition key value
             await container.items.upsert(summary);
-            console.log(`📝 Tracking summary saved/updated for buyer_id: ${summary.buyer_id}`);
+            
+            console.log(`📝 Tracking summary ${summary.id === summary.user_id ? 'updated' : 'saved'} for user_id: ${summary.user_id} (document id: ${summary.id})`);
         } catch (error) {
-            console.error(`⚠️ Failed to save tracking summary for ${summary.buyer_id}:`, error);
+            console.error(`⚠️ Failed to save tracking summary for ${summary.user_id}:`, error);
             throw error;
         }
     }
 
     /**
-     * Get tracking summary for a buyer_id
+     * Get tracking summary for a user_id
+     * Uses user_id as both document id and partition key for efficient direct lookup
+     * Supports backward compatibility with old documents that use buyer_id
      */
-    async getTrackingSummary(buyerId: string): Promise<TrackingSummary | null> {
+    async getTrackingSummary(userId: string): Promise<TrackingSummary | null> {
         try {
             const container = this.getSummaryContainer();
-            const query = `SELECT * FROM c WHERE c.buyer_id = @buyerId ORDER BY c.updatedAt DESC OFFSET 0 LIMIT 1`;
-            const { resources } = await container.items
+            
+            // Try direct read first (more efficient) - using user_id as both id and partition key
+            try {
+                const { resource } = await container.item(userId, userId).read<TrackingSummary>();
+                if (resource) {
+                    return resource;
+                }
+            } catch (readError: any) {
+                // If document doesn't exist (404), fall back to query for backward compatibility
+                // This handles old documents that might have different id format or use buyer_id
+                if (readError.code !== 404) {
+                    console.warn(`⚠️ Direct read failed for user_id ${userId}, falling back to query:`, readError.message);
+                }
+            }
+            
+            // Fallback: Query by user_id first (new format), then buyer_id (old format) for backward compatibility
+            let query = `SELECT * FROM c WHERE c.user_id = @userId ORDER BY c.updatedAt DESC OFFSET 0 LIMIT 1`;
+            let { resources } = await container.items
                 .query({
                     query,
-                    parameters: [{ name: "@buyerId", value: buyerId }]
+                    parameters: [{ name: "@userId", value: userId }]
                 })
                 .fetchAll();
 
-            return resources?.[0] || null;
+            // If not found, try old buyer_id field for backward compatibility
+            if (!resources || resources.length === 0) {
+                query = `SELECT * FROM c WHERE c.buyer_id = @userId ORDER BY c.updatedAt DESC OFFSET 0 LIMIT 1`;
+                const oldFormatResult = await container.items
+                    .query({
+                        query,
+                        parameters: [{ name: "@userId", value: userId }]
+                    })
+                    .fetchAll();
+                resources = oldFormatResult.resources;
+            }
+
+            const summary = resources?.[0] || null;
+            
+            // If we found an old document, log a warning
+            if (summary) {
+                if (summary.id !== userId) {
+                    console.warn(`⚠️ Found tracking summary for user_id ${userId} with different id: ${summary.id}. Consider migrating.`);
+                }
+                // Migrate old buyer_id to user_id if needed
+                if ((summary as any).buyer_id && !summary.user_id) {
+                    console.warn(`⚠️ Found old format document with buyer_id. Migration needed.`);
+                }
+            }
+            
+            return summary;
         } catch (error) {
-            console.error(`⚠️ Failed to get tracking summary for buyer_id ${buyerId}:`, error);
+            console.error(`⚠️ Failed to get tracking summary for user_id ${userId}:`, error);
             return null;
         }
     }

@@ -50,7 +50,8 @@ export interface OverallBuyerProfile {
 }
 
 export interface TrackingSummary {
-  buyer_id: string;
+  id: string; // Document ID - same as user_id for easy lookup and upsert
+  user_id: string; // Changed from buyer_id for consistency with email tracking data
   email_insight: EmailInsight;
   call_insight?: CallInsight;
   whatsapp_insight?: WhatsAppInsight;

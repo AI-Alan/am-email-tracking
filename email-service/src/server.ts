@@ -207,22 +207,23 @@ app.post("/test-reply", async (req: Request, res: Response) => {
 // Generate tracking summary endpoint
 app.post("/generate-insights", async (req: Request, res: Response) => {
     try {
-        const { buyer_id } = req.body;
+        // Support both user_id (new) and buyer_id (old) for backward compatibility
+        const userId = req.body.user_id || req.body.buyer_id;
 
-        if (!buyer_id) {
+        if (!userId) {
             return res.status(400).json({
                 success: false,
-                error: "buyer_id is required"
+                error: "user_id (or buyer_id) is required"
             });
         }
 
-        console.log(`📊 Generating insights for buyer_id: ${buyer_id}`);
-        const summary = await emailInsightService.generateTrackingSummary(buyer_id);
+        console.log(`📊 Generating insights for user_id: ${userId}`);
+        const summary = await emailInsightService.generateTrackingSummary(userId);
 
         res.json({
             success: true,
             data: summary,
-            message: `Insights generated successfully for buyer_id: ${buyer_id}`
+            message: `Insights generated successfully for user_id: ${userId}`
         });
     } catch (error) {
         console.error("Error generating insights:", error);
@@ -238,7 +239,7 @@ app.listen(PORT, async () => {
     console.log(`   POST /send-email - Send test emails`);
     console.log(`   POST /graph/webhook - Reply tracking webhook`);
     console.log(`   POST /test-reply - Manual reply test`);
-    console.log(`   POST /generate-insights - Generate tracking insights for buyer_id`);
+    console.log(`   POST /generate-insights - Generate tracking insights for user_id`);
 
     // Initialize subscription on startup
     await initializeSubscription();
