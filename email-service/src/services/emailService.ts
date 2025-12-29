@@ -151,51 +151,106 @@ class EmailService {
     conversationId?: string;
     internetMessageId?: string;
   }> {
-    const maxRetries = 3;
-    const initialDelay = 3000; // Start with 3 seconds
+    const maxRetries = 5;
+    // Longer delays: 5s, 10s, 15s, 20s, 30s (messages can take 5-30 seconds to appear in Sent Items)
+    const delays = [5000, 10000, 15000, 20000, 30000];
+
+    console.log(`🔍 Starting to fetch Graph API details for message ${internalMessageId}...`);
+    console.log(`ℹ️ Note: Microsoft Graph API sendMail doesn't return message IDs. We must query Sent Items after the message appears.`);
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         // Wait for the message to appear in Sent Items (increasing delay)
-        const delay = initialDelay * attempt;
-        await new Promise(resolve => setTimeout(resolve, delay));
+        const delay = delays[attempt - 1] || delays[delays.length - 1];
+        if (attempt > 1) {
+          console.log(`⏳ Waiting ${delay/1000}s before attempt ${attempt}/${maxRetries}...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
 
-        console.log(`🔍 Attempting to fetch Graph details (attempt ${attempt}/${maxRetries})...`);
+        console.log(`🔍 Attempt ${attempt}/${maxRetries}: Querying Sent Items for message with header X-AgentMira-Message-Id: ${internalMessageId}`);
 
-        // Query Sent Items for the message with our custom header
-        const result = await this.client
-          .api(`/users/${this.senderEmail}/mailFolders/SentItems/messages`)
-          .filter(`internetMessageHeaders/any(x:x/name eq 'X-AgentMira-Message-Id' and x/value eq '${internalMessageId}')`)
-          .orderby('sentDateTime desc')
-          .top(1)
-          .select('id,conversationId,internetMessageId')
-          .get();
+        // Primary method: Query by custom header
+        try {
+          const result = await this.client
+            .api(`/users/${this.senderEmail}/mailFolders/SentItems/messages`)
+            .filter(`internetMessageHeaders/any(x:x/name eq 'X-AgentMira-Message-Id' and x/value eq '${internalMessageId}')`)
+            .orderby('sentDateTime desc')
+            .top(1)
+            .select('id,conversationId,internetMessageId')
+            .get();
 
-        if (result.value && result.value.length > 0) {
-          const message = result.value[0];
-          const graphDetails = {
-            messageId: message.id,
-            conversationId: message.conversationId,
-            internetMessageId: message.internetMessageId
-          };
+          if (result.value && result.value.length > 0) {
+            const message = result.value[0];
+            const graphDetails = {
+              messageId: message.id,
+              conversationId: message.conversationId,
+              internetMessageId: message.internetMessageId
+            };
+            
+            console.log(`✅ Successfully retrieved Graph API details for ${internalMessageId}:`);
+            console.log(`   - messageId (Graph API id): ${graphDetails.messageId}`);
+            console.log(`   - conversationId: ${graphDetails.conversationId || 'N/A'}`);
+            console.log(`   - internetMessageId: ${graphDetails.internetMessageId || 'N/A'}`);
+            
+            // Update the document in Cosmos DB with Graph details
+            await this.updateGraphDetailsInDB(internalMessageId, userId, graphDetails);
+            
+            return graphDetails;
+          } else {
+            console.warn(`⚠️ Message not found in Sent Items (attempt ${attempt}/${maxRetries}). The message may still be processing.`);
+          }
+        } catch (filterError: any) {
+          // If header filter fails, try alternative: get latest messages and search
+          console.warn(`⚠️ Header filter query failed (attempt ${attempt}):`, filterError?.message || filterError);
           
-          console.log(`✅ Retrieved Graph API details for ${internalMessageId}:`, graphDetails);
-          
-          // Update the document in Cosmos DB with Graph details
-          await this.updateGraphDetailsInDB(internalMessageId, userId, graphDetails);
-          
-          return graphDetails;
-        } else {
-          console.warn(`⚠️ Message not found in Sent Items (attempt ${attempt}/${maxRetries})`);
+          if (attempt >= 3) {
+            // On later attempts, try getting recent messages and checking headers manually
+            try {
+              console.log(`🔄 Trying alternative method: Fetching recent messages from Sent Items...`);
+              const recentMessages = await this.client
+                .api(`/users/${this.senderEmail}/mailFolders/SentItems/messages`)
+                .orderby('sentDateTime desc')
+                .top(10)
+                .select('id,conversationId,internetMessageId,internetMessageHeaders')
+                .get();
+
+              if (recentMessages.value) {
+                for (const msg of recentMessages.value) {
+                  const headers = msg.internetMessageHeaders || [];
+                  const customHeader = headers.find((h: any) => 
+                    h.name === 'X-AgentMira-Message-Id' && h.value === internalMessageId
+                  );
+                  
+                  if (customHeader) {
+                    const graphDetails = {
+                      messageId: msg.id,
+                      conversationId: msg.conversationId,
+                      internetMessageId: msg.internetMessageId
+                    };
+                    
+                    console.log(`✅ Found message using alternative method:`, graphDetails);
+                    await this.updateGraphDetailsInDB(internalMessageId, userId, graphDetails);
+                    return graphDetails;
+                  }
+                }
+              }
+            } catch (altError: any) {
+              console.warn(`⚠️ Alternative query method also failed:`, altError?.message || altError);
+            }
+          }
         }
       } catch (error: any) {
         console.warn(`⚠️ Error fetching Graph details (attempt ${attempt}/${maxRetries}):`, error?.message || error);
         if (attempt === maxRetries) {
-          console.error(`❌ Failed to fetch Graph details after ${maxRetries} attempts`);
+          console.error(`❌ Failed to fetch Graph details after ${maxRetries} attempts for message ${internalMessageId}`);
+          console.error(`ℹ️ This is normal if the message takes longer than ~30 seconds to appear in Sent Items.`);
+          console.error(`ℹ️ The message was sent successfully, but Graph API IDs are not available yet.`);
+          console.error(`ℹ️ Consider implementing a background job to retry fetching these details later.`);
         }
       }
     }
     
+    console.warn(`⚠️ Returning empty Graph details. Message ${internalMessageId} may still be processing or query failed.`);
     return {};
   }
 
@@ -249,6 +304,7 @@ class EmailService {
       const emailLog: EmailTracking = {
         id: messageId,
         userId: recipient.user_id || recipient.email,
+        user_id: recipient.user_id || recipient.email, // Partition key field (must match Cosmos DB partition key path /user_id)
         channel: "EMAIL",
         provider: "MICROSOFT_GRAPH",
         direction: "OUTBOUND",

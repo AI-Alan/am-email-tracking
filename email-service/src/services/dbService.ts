@@ -76,10 +76,12 @@ class DbService {
 
     /**
      * Retrieve tracking data by ID and userId (partition key)
+     * userId here refers to the partition key value (which may be stored as user_id in Cosmos DB)
      */
     async getTrackingData(id: string, userId: string): Promise<EmailTracking | null> {
         try {
             const container = this.getContainer();
+            // Partition key is /user_id, so use userId value as partition key
             const { resource } = await container.item(id, userId).read<EmailTracking>();
             return resource || null;
         } catch (error) {
@@ -128,20 +130,30 @@ class DbService {
     }
 
     /**
-     * Query all email tracking data for a specific buyer_id (userId)
+     * Query email tracking data for a specific buyer_id (userId)
+     * Fetches emails where userId OR user_id matches (handles both old and new documents)
+     * Sorted by sentAt DESC (most recent first)
+     * Limited to last 100 emails for performance
      */
-    async getEmailsByBuyerId(buyerId: string): Promise<EmailTracking[]> {
+    async getEmailsByBuyerId(buyerId: string, limit: number = 100): Promise<EmailTracking[]> {
         try {
             const container = this.getContainer();
-            const query = `SELECT * FROM c WHERE c.userId = @buyerId ORDER BY c.sent.sentAt DESC`;
+            // Query for both userId and user_id to handle documents saved with either field
+            // Cosmos DB LIMIT uses TOP in SQL, and limit parameter in query options
+            const query = `SELECT * FROM c WHERE (c.userId = @buyerId OR c.user_id = @buyerId) ORDER BY c.sent.sentAt DESC`;
             const { resources } = await container.items
                 .query({
                     query,
-                    parameters: [{ name: "@buyerId", value: buyerId }]
+                    parameters: [{ name: "@buyerId", value: buyerId }],
+                    maxItemCount: limit
                 })
                 .fetchAll();
 
-            return resources || [];
+            // Limit to requested number (fetchAll might return more if maxItemCount is exceeded)
+            const limitedResources = (resources || []).slice(0, limit);
+            
+            console.log(`📧 Found ${limitedResources.length} emails for buyer_id: ${buyerId} (out of ${resources?.length || 0} total)`);
+            return limitedResources;
         } catch (error) {
             console.error(`⚠️ Failed to query emails for buyer_id ${buyerId}:`, error);
             throw error;

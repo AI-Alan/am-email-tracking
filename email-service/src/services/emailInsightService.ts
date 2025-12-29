@@ -235,21 +235,28 @@ class EmailInsightService {
     async generateTrackingSummary(buyerId: string): Promise<TrackingSummary> {
         console.log(`📊 Generating email insight for buyer_id: ${buyerId}`);
 
-        // Fetch all emails for this buyer
-        const emails = await dbService.getEmailsByBuyerId(buyerId);
+        // Fetch emails for this buyer (limited to last 100 for performance)
+        const emails = await dbService.getEmailsByBuyerId(buyerId, 100);
         if (emails.length === 0) {
             throw new Error(`No emails found for buyer_id: ${buyerId}`);
         }
 
-        // Calculate summary statistics
+        console.log(`📊 Processing ${emails.length} emails for buyer_id: ${buyerId}`);
+
+        // Calculate summary statistics from all fetched emails
         const summary = this.calculateSummary(emails);
 
-        // Get latest email and analyze with AI
-        const latestEmail = emails[0]; // Emails are sorted DESC by sentAt
+        // Get latest email (first in array since sorted DESC by sentAt)
+        // This is the most recent email based on sentAt timestamp
+        const latestEmail = emails[0];
+        console.log(`📧 Latest email ID: ${latestEmail.id}, sentAt: ${latestEmail.sent.sentAt}`);
+        
+        // Analyze latest email with AI
         const latestEmailInsight = await this.analyzeEmailWithAI(latestEmail);
 
-        // Build email history
-        const history = this.buildEmailHistory(emails, latestEmailInsight);
+        // Build email history (limit to last 50 for history to avoid large payloads)
+        const historyEmails = emails.slice(0, 50); // Most recent 50 emails
+        const history = this.buildEmailHistory(historyEmails, latestEmailInsight);
 
         // Build email insight object
         const emailInsight: EmailInsight = {

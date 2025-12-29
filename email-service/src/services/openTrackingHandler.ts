@@ -36,7 +36,9 @@ export async function handleEmailOpen(
             updates.push({ op: "set", path: "/open/uniqueUserAgents", value: 1 });
         }
 
-        await dbService.patchTrackingData(messageId, resource.userId, updates);
+        // Use user_id (partition key) if available, fallback to userId
+        const partitionKey = (resource as any).user_id || resource.userId;
+        await dbService.patchTrackingData(messageId, partitionKey, updates);
     } catch (error) {
         console.error("Open tracking failed:", error);
     }

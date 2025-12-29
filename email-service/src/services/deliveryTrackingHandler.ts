@@ -34,7 +34,9 @@ export async function handleEmailDelivery(
             console.log(`❌ Email bounced: ${messageId} - ${bounceReason || 'Unknown reason'}`);
         }
 
-        await dbService.patchTrackingData(messageId, resource.userId, updates);
+        // Use user_id (partition key) if available, fallback to userId
+        const partitionKey = (resource as any).user_id || resource.userId;
+        await dbService.patchTrackingData(messageId, partitionKey, updates);
     } catch (error) {
         console.error("Delivery tracking failed:", error);
     }

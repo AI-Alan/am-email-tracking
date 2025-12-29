@@ -39,7 +39,9 @@ export async function handleEmailReply(
             updates.push({ op: "set", path: "/reply/isAutoReply", value: isAutoReply });
         }
 
-        await dbService.patchTrackingData(messageId, resource.userId, updates);
+        // Use user_id (partition key) if available, fallback to userId
+        const partitionKey = (resource as any).user_id || resource.userId;
+        await dbService.patchTrackingData(messageId, partitionKey, updates);
         console.log(`💬 Reply tracked: ${messageId} from ${fromEmail}${replyMessageId ? ` [Reply ID: ${replyMessageId}]` : ''}`);
     } catch (error) {
         // Fail silently - never break reply tracking

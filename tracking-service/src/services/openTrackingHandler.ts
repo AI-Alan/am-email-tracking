@@ -33,6 +33,15 @@ export async function handleEmailOpen(messageId: string, userAgent?: string): Pr
         }
 
         const resource: EmailTracking = resources[0];
+        
+        // Get partition key value - use user_id if available, fallback to userId
+        const partitionKeyValue = resource.user_id || resource.userId;
+        
+        if (!partitionKeyValue) {
+            console.error(`⚠️ No partition key (user_id/userId) found for messageId: ${messageId}`);
+            return;
+        }
+
         const now = new Date().toISOString();
         const updates: any[] = [];
 
@@ -63,8 +72,9 @@ export async function handleEmailOpen(messageId: string, userAgent?: string): Pr
         // Update updatedAt
         updates.push({ op: "set" as const, path: "/updatedAt", value: now });
 
-        // Use messageId (which is the document id) and userId (partition key)
-        await container.item(resource.id, resource.userId).patch(updates);
+        // Use messageId (document id) and user_id (partition key value from /user_id field)
+        console.log(`📝 Patching document: id=${resource.id}, partitionKey=${partitionKeyValue}`);
+        await container.item(resource.id, partitionKeyValue).patch(updates);
         console.log(`📧 Email opened: ${messageId} (count: ${newOpenCount})`);
     } catch (error) {
         // Fail silently - never break the tracking pixel
