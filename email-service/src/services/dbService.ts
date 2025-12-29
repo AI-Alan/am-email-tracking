@@ -142,11 +142,15 @@ class DbService {
             // Cosmos DB LIMIT uses TOP in SQL, and limit parameter in query options
             const query = `SELECT * FROM c WHERE (c.userId = @buyerId OR c.user_id = @buyerId) ORDER BY c.sent.sentAt DESC`;
             const { resources } = await container.items
-                .query({
-                    query,
-                    parameters: [{ name: "@buyerId", value: buyerId }],
-                    maxItemCount: limit
-                })
+                .query(
+                    {
+                        query,
+                        parameters: [{ name: "@buyerId", value: buyerId }]
+                    },
+                    {
+                        maxItemCount: limit
+                    }
+                )
                 .fetchAll();
 
             // Limit to requested number (fetchAll might return more if maxItemCount is exceeded)
