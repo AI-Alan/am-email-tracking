@@ -32,9 +32,15 @@ const DEFAULT_EMAIL_BODY = (recipientName: string) => `
  * Handles line breaks, URLs, and basic formatting
  */
 function formatPlainTextToHTML(text: string, recipientName: string): string {
-  if (!text || text.trim().length === 0) {
+  // Normalize: handle both string and undefined/null
+  const normalizedText = (text || '').trim();
+  
+  if (normalizedText.length === 0) {
+    console.log(`⚠️ formatPlainTextToHTML: Empty text provided, using DEFAULT_EMAIL_BODY`);
     return DEFAULT_EMAIL_BODY(recipientName);
   }
+
+  console.log(`📝 formatPlainTextToHTML: Converting plain text (${normalizedText.length} chars) to HTML`);
 
   // Escape HTML entities
   const escapeHtml = (str: string) => {
@@ -53,7 +59,8 @@ function formatPlainTextToHTML(text: string, recipientName: string): string {
   };
 
   // Convert line breaks to paragraphs
-  const lines = text.split(/\n+/);
+  // Split by newlines (handles \n, \r\n, \r)
+  const lines = normalizedText.split(/\r?\n/);
   const paragraphs = lines
     .map(line => line.trim())
     .filter(line => line.length > 0)
@@ -63,10 +70,16 @@ function formatPlainTextToHTML(text: string, recipientName: string): string {
       return `<p style="margin: 0 0 12px 0; line-height: 1.5;">${linked}</p>`;
     });
 
+  // If no paragraphs after processing (all whitespace), use default
+  if (paragraphs.length === 0) {
+    console.log(`⚠️ formatPlainTextToHTML: No content after processing, using DEFAULT_EMAIL_BODY`);
+    return DEFAULT_EMAIL_BODY(recipientName);
+  }
+
   // Build the HTML structure
   const bodyContent = paragraphs.join('\n');
 
-  return `
+  const htmlBody = `
     <div style="font-family: Arial, sans-serif; color: #222; max-width: 600px;">
       ${bodyContent}
       <p style="margin: 20px 0 0 0; font-size: 1em; color: #222;">
@@ -75,6 +88,9 @@ function formatPlainTextToHTML(text: string, recipientName: string): string {
         </p>
       </div>
   `;
+  
+  console.log(`✅ formatPlainTextToHTML: Converted to HTML (${htmlBody.length} chars, ${paragraphs.length} paragraphs)`);
+  return htmlBody.trim();
   }
 
 /**
@@ -138,8 +154,16 @@ class EmailService {
   private addTrackingPixel(messageId: string, emailBody: string): string {
     const trackingPixel = `<img src="${this.baseUrl}/open/${messageId}.png" width="1" height="1" style="display:none" alt="" />`;
     
+    // Check if tracking pixel already exists (prevent duplicates)
+    if (emailBody.includes(`/open/${messageId}.png`)) {
+      console.log(`⚠️ Tracking pixel already exists in email body for ${messageId}`);
+      return emailBody;
+    }
+    
     // Append tracking pixel to the email body
-    return `${emailBody}${trackingPixel}`;
+    const bodyWithTracking = `${emailBody}${trackingPixel}`;
+    console.log(`✅ Tracking pixel added to email [${messageId}]`);
+    return bodyWithTracking;
   }
 
   /**
@@ -289,6 +313,7 @@ class EmailService {
   /**
    * Log email attempt to Cosmos DB with new structured format
    * Graph details are fetched and updated separately after sending
+   * @param originalPlainText - Original plain text if provided (preferred over extracting from HTML)
    */
   private async logEmailToCosmosDB(
     messageId: string,
@@ -297,13 +322,15 @@ class EmailService {
     status: 'SENT' | 'FAILED',
     errorMessage?: string,
     templateName?: string,
-    bodyHtml?: string
+    bodyHtml?: string,
+    originalPlainText?: string
   ): Promise<void> {
     try {
       const now = new Date().toISOString();
 
-      // Extract plain text from HTML if bodyHtml is provided
-      const bodyText = bodyHtml ? htmlToPlainText(bodyHtml) : undefined;
+      // Use original plain text if provided, otherwise extract from HTML
+      // Original plain text is preferred because it preserves the exact user input
+      const bodyText = originalPlainText || (bodyHtml ? htmlToPlainText(bodyHtml) : undefined);
 
       const emailLog: EmailTracking = {
         id: messageId,
@@ -356,10 +383,13 @@ class EmailService {
 
   /**
    * Send custom email with subject and HTML body
+   * @param originalPlainText - Original plain text body if provided (for storing in DB)
    */
-  async sendCustomEmail(recipient: EmailRecipient, subject: string, htmlBody: string, providedMessageId?: string): Promise<boolean> {
+  async sendCustomEmail(recipient: EmailRecipient, subject: string, htmlBody: string, providedMessageId?: string, originalPlainText?: string): Promise<boolean> {
     const messageId = providedMessageId || randomUUID();  // Use provided messageId or generate new one
     console.log(`📧 Sending custom email to ${recipient.email} [${messageId}]`);
+    console.log(`   HTML body length: ${htmlBody.length} chars`);
+    console.log(`   Original plain text: ${originalPlainText ? `${originalPlainText.length} chars` : 'not provided (will extract from HTML)'}`);
 
     try {
       // Embed messageId in email body as HTML comment
@@ -367,6 +397,13 @@ class EmailService {
       
       // Automatically add tracking pixel to all emails
       const bodyWithTracking = this.addTrackingPixel(messageId, bodyWithMessageId);
+      
+      // Verify tracking pixel was added
+      if (!bodyWithTracking.includes(`/open/${messageId}.png`)) {
+        console.error(`❌ ERROR: Tracking pixel not found in email body for ${messageId}!`);
+      } else {
+        console.log(`✅ Tracking pixel verified in email body for ${messageId}`);
+      }
 
       const message = {
         subject,
@@ -400,6 +437,7 @@ class EmailService {
       console.log(`✅ Custom email sent successfully to ${recipient.email} [${messageId}]`);
 
       // Log email to Cosmos DB first (Graph details might not be available immediately)
+      // Pass original plain text if available, otherwise extract from HTML
       await this.logEmailToCosmosDB(
         messageId, 
         recipient, 
@@ -407,7 +445,8 @@ class EmailService {
         'SENT',
         undefined,
         undefined, // No template name for custom emails
-        bodyWithTracking // Store body with tracking pixel
+        bodyWithTracking, // Store body with tracking pixel
+        originalPlainText // Store original plain text if provided (prefer over extracted)
       );
 
       // Fetch Graph API message details from Sent Items and update the document
@@ -455,20 +494,43 @@ class EmailService {
     // Use provided subject or default
     const emailSubject = subject || 'Message from Agent Mira';
 
+    // Normalize body - handle undefined, null, empty string, and whitespace-only
+    const normalizedBody = (body || '').trim();
+
     // Format body: convert plain text to HTML if needed, or use default
     let emailBody: string;
-    if (!body) {
+    let bodyType: string;
+    let originalPlainText: string | undefined = undefined;
+
+    if (normalizedBody.length === 0) {
+      bodyType = 'default_template';
       emailBody = DEFAULT_EMAIL_BODY(recipient.name);
-    } else if (isHTML(body)) {
+      console.log(`📝 Using DEFAULT email template for ${recipient.email} (no body provided)`);
+    } else if (isHTML(normalizedBody)) {
+      bodyType = 'html';
       // Body is already HTML, use as is
-      emailBody = body;
+      emailBody = normalizedBody;
+      console.log(`📝 Body is HTML for ${recipient.email}, using as-is (length: ${normalizedBody.length} chars)`);
     } else {
+      bodyType = 'plain_text_converted';
+      // Store original plain text before conversion
+      originalPlainText = normalizedBody;
       // Body is plain text, convert to HTML
-      emailBody = formatPlainTextToHTML(body, recipient.name);
+      emailBody = formatPlainTextToHTML(normalizedBody, recipient.name);
+      console.log(`📝 Converting plain text to HTML for ${recipient.email} (original length: ${normalizedBody.length} chars, HTML length: ${emailBody.length} chars)`);
+      
+      // Verify conversion worked (should not be default template)
+      if (emailBody.includes('Thank you for your message') && normalizedBody.length > 0) {
+        console.error(`⚠️ ERROR: Plain text conversion failed - fell back to default template even though body was provided!`);
+        console.error(`   Original body preview: ${normalizedBody.substring(0, 200)}`);
+      }
     }
 
+    console.log(`📧 Sending email to ${recipient.email} [bodyType: ${bodyType}]`);
+
     // Use sendCustomEmail - tracking pixel will be automatically added
-    return this.sendCustomEmail(recipient, emailSubject, emailBody);
+    // Pass original plain text so it can be stored in DB (if it was plain text)
+    return this.sendCustomEmail(recipient, emailSubject, emailBody, undefined, originalPlainText);
   }
 }
 

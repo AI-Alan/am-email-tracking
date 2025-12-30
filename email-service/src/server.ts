@@ -64,9 +64,18 @@ app.post("/send-email", async (req: Request, res: Response) => {
             return res.status(400).json({ success: false, error: "Email is required" });
         }
 
+        // Debug logging for body content
+        console.log(`📧 Email send request details:`);
+        console.log(`   - email: ${email}`);
+        console.log(`   - user_id: ${user_id || 'not provided'}`);
+        console.log(`   - subject: ${subject || 'not provided'}`);
+        console.log(`   - body: ${body ? `${body.length} chars, type: ${typeof body}, preview: ${body.substring(0, 100)}...` : 'not provided (will use default template)'}`);
+        console.log(`   - name: ${name || 'not provided'}`);
+
         await emailService.sendEmail(email, user_id, subject, body, name);
         res.json({ success: true, message: `Email sent to ${email}` });
     } catch (error) {
+        console.error(`❌ Error in /send-email endpoint:`, error);
         res.status(500).json({
             success: false,
             error: error instanceof Error ? error.message : "Unknown error"
