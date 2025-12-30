@@ -171,8 +171,8 @@ class EmailInsightService {
             // Default insights: Only use reply status, NOT open count (unreliable)
             // Confidence 0.5 = moderate confidence since we're using simple rules
             return {
-                engagement_level: emailDoc.reply.status === "REPLIED" ? "MEDIUM" : "LOW",
-                buyer_intent: emailDoc.reply.status === "REPLIED" ? "INTERESTED" : "UNKNOWN",
+                engagement_level: emailDoc.replyTracking.status === "REPLIED" ? "MEDIUM" : "LOW",
+                buyer_intent: emailDoc.replyTracking.status === "REPLIED" ? "INTERESTED" : "UNKNOWN",
                 urgency_level: "LOW",
                 sentiment: "NEUTRAL",
                 next_best_action: "FOLLOW_UP_EMAIL",
@@ -256,8 +256,8 @@ class EmailInsightService {
             // Return default insights on error: Only use reply status, NOT open count (unreliable)
             // Confidence 0.3 = low confidence since AI failed and we're using simple rules
             return {
-                engagement_level: emailDoc.reply.status === "REPLIED" ? "MEDIUM" : "LOW",
-                buyer_intent: emailDoc.reply.status === "REPLIED" ? "INTERESTED" : "UNKNOWN",
+                engagement_level: emailDoc.replyTracking.status === "REPLIED" ? "MEDIUM" : "LOW",
+                buyer_intent: emailDoc.replyTracking.status === "REPLIED" ? "INTERESTED" : "UNKNOWN",
                 urgency_level: "LOW",
                 sentiment: "NEUTRAL",
                 next_best_action: "FOLLOW_UP_EMAIL",
@@ -274,16 +274,16 @@ class EmailInsightService {
     private calculateSummary(emails: EmailTracking[]): EmailInsightSummary {
         const totalSent = emails.length;
         // Count emails with open tracking (for display only, NOT used in engagement calculations)
-        const emailsOpened = emails.filter(e => e.open.openCount > 0).length;
-        const emailsReplied = emails.filter(e => e.reply.status === "REPLIED").length;
+        const emailsOpened = emails.filter(e => e.openTracking.openCount > 0).length;
+        const emailsReplied = emails.filter(e => e.replyTracking.status === "REPLIED").length;
 
         // Calculate average reply time in seconds
         let totalReplyTime = 0;
         let replyCount = 0;
         emails.forEach(email => {
-            if (email.reply.status === "REPLIED" && email.reply.repliedAt && email.sent.sentAt) {
-                const sentTime = new Date(email.sent.sentAt).getTime();
-                const repliedTime = new Date(email.reply.repliedAt).getTime();
+            if (email.replyTracking.status === "REPLIED" && email.replyTracking.repliedAt && email.deliveryStatus.sentAt) {
+                const sentTime = new Date(email.deliveryStatus.sentAt).getTime();
+                const repliedTime = new Date(email.replyTracking.repliedAt).getTime();
                 totalReplyTime += (repliedTime - sentTime) / 1000; // Convert to seconds
                 replyCount++;
             }
@@ -313,10 +313,10 @@ class EmailInsightService {
             const isLatest = email.id === emails[0]?.id;
             return {
                 message_id: email.id, // Internal message ID (UUID) - same as EmailTracking.id
-                sentAt: email.sent.sentAt,
+                sentAt: email.deliveryStatus.sentAt,
                 insight: {
-                    buyer_intent: isLatest ? latestInsight.buyer_intent : (email.reply.status === "REPLIED" ? "INTERESTED" : "UNKNOWN"),
-                    sentiment: isLatest ? latestInsight.sentiment : (email.reply.status === "REPLIED" ? "POSITIVE" : "NEUTRAL")
+                    buyer_intent: isLatest ? latestInsight.buyer_intent : (email.replyTracking.status === "REPLIED" ? "INTERESTED" : "UNKNOWN"),
+                    sentiment: isLatest ? latestInsight.sentiment : (email.replyTracking.status === "REPLIED" ? "POSITIVE" : "NEUTRAL")
                 }
             };
         });
@@ -369,7 +369,7 @@ class EmailInsightService {
         // This is the most recent email from the most recent conversation thread
         const latestEmail = emails[0];
         const hasGraphData = latestEmail.graph?.messageId && latestEmail.graph.messageId !== '';
-        console.log(`📧 Latest email ID: ${latestEmail.id}, sentAt: ${latestEmail.sent.sentAt}, hasGraphData: ${hasGraphData}`);
+        console.log(`📧 Latest email ID: ${latestEmail.id}, sentAt: ${latestEmail.deliveryStatus.sentAt}, hasGraphData: ${hasGraphData}`);
         if (latestEmail.graph?.conversationId) {
             console.log(`   Conversation thread: ${latestEmail.graph.conversationId}`);
         }

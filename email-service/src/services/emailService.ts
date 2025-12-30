@@ -356,19 +356,19 @@ class EmailService {
           conversationId: undefined,
           internetMessageId: undefined,
         },
-        sent: {
+        deliveryStatus: {
           status: status as any,
           sentAt: now,
         },
-        open: {
+        openTracking: {
           openCount: 0,
           uniqueUserAgents: 0,
         },
-        reply: {
+        replyTracking: {
           status: "NONE",
           isAutoReply: false,
         },
-        forwarding: {
+        forwardingTracking: {
           suspected: false,
           confidence: "NONE",
         },

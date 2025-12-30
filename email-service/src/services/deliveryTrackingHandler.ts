@@ -27,15 +27,15 @@ export async function handleEmailDelivery(
             if (willUpdateStatus) {
                 updates.push({ op: "set", path: "/lifecycleStatus", value: LifecycleStatus.SENT });
             }
-            // Always update sent status and timestamp (these are separate from lifecycle status)
-            updates.push({ op: "set", path: "/sent/status", value: "SENT" });
-            updates.push({ op: "set", path: "/sent/sentAt", value: timestamp });
+            // Always update delivery status and timestamp (these are separate from lifecycle status)
+            updates.push({ op: "set", path: "/deliveryStatus/status", value: "SENT" });
+            updates.push({ op: "set", path: "/deliveryStatus/sentAt", value: timestamp });
             const newStatus = willUpdateStatus ? LifecycleStatus.SENT : currentStatus;
             console.log(`✅ Email delivered: ${messageId} (lifecycle: ${currentStatus} -> ${newStatus})`);
         } else if (status === 'BOUNCED') {
             // Bounce always sets status to FAILED, regardless of current status
             updates.push({ op: "set", path: "/lifecycleStatus", value: LifecycleStatus.FAILED });
-            updates.push({ op: "set", path: "/sent/status", value: "FAILED" });
+            updates.push({ op: "set", path: "/deliveryStatus/status", value: "FAILED" });
             console.log(`❌ Email bounced: ${messageId} - ${bounceReason || 'Unknown reason'}`);
         }
 

@@ -166,7 +166,7 @@ class DbService {
                 parameters.push({ name: "@recipientEmail", value: recipientEmail });
             }
             
-            query += ` ORDER BY c.sent.sentAt DESC OFFSET 0 LIMIT 1`;
+            query += ` ORDER BY c.deliveryStatus.sentAt DESC OFFSET 0 LIMIT 1`;
             
             const { resources } = await container.items
                 .query({
@@ -221,11 +221,11 @@ class DbService {
                 // Prefer emails with Graph messageId (complete metadata)
                 // Still include recent emails without Graph data (they might be < 30s old)
                 const recentThreshold = new Date(Date.now() - 60000).toISOString(); // 1 minute ago
-                query += ` AND (c.graph.messageId != '' AND c.graph.messageId != null OR c.sent.sentAt > @recentThreshold)`;
+                query += ` AND (c.graph.messageId != '' AND c.graph.messageId != null OR c.deliveryStatus.sentAt > @recentThreshold)`;
                 parameters.push({ name: "@recentThreshold", value: recentThreshold });
             }
             
-            query += ` ORDER BY c.sent.sentAt DESC`;
+            query += ` ORDER BY c.deliveryStatus.sentAt DESC`;
             
             const { resources } = await container.items
                 .query(
@@ -262,7 +262,7 @@ class DbService {
             for (const [convId, emails] of conversationMap.entries()) {
                 // Sort by sentAt DESC and take the latest
                 emails.sort((a, b) => 
-                    new Date(b.sent.sentAt).getTime() - new Date(a.sent.sentAt).getTime()
+                    new Date(b.deliveryStatus.sentAt).getTime() - new Date(a.deliveryStatus.sentAt).getTime()
                 );
                 const latestInThread = emails[0];
                 threadRepresentatives.push(latestInThread);
@@ -273,7 +273,7 @@ class DbService {
             
             // Sort all by sentAt DESC
             allEmails.sort((a, b) => 
-                new Date(b.sent.sentAt).getTime() - new Date(a.sent.sentAt).getTime()
+                new Date(b.deliveryStatus.sentAt).getTime() - new Date(a.deliveryStatus.sentAt).getTime()
             );
             
             // Limit to requested number

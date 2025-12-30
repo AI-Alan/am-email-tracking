@@ -64,10 +64,10 @@ export interface EmailTracking {
     recipient: Recipient;
     email: EmailDetails;
     graph: GraphDetails;
-    sent: SentDetails;
-    open: OpenDetails;
-    reply: ReplyDetails;
-    forwarding: ForwardingDetails;
+    deliveryStatus: SentDetails; // Renamed from 'sent'
+    openTracking: OpenDetails; // Renamed from 'open'
+    replyTracking: ReplyDetails; // Renamed from 'reply'
+    forwardingTracking: ForwardingDetails; // Renamed from 'forwarding'
 
     // Metadata for Cosmos DB indexing/querying
     createdAt: string;

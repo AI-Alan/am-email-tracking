@@ -32,18 +32,18 @@ export async function handleEmailOpen(
             console.log(`👁️ Email opened but lifecycle is ${currentStatus}: ${messageId} (keeping status)`);
         }
 
-        const currentOpenCount = resource.open?.openCount || 0;
-        updates.push({ op: "set", path: "/open/openCount", value: currentOpenCount + 1 });
+        const currentOpenCount = resource.openTracking?.openCount || 0;
+        updates.push({ op: "set", path: "/openTracking/openCount", value: currentOpenCount + 1 });
 
-        if (!resource.open?.firstOpenedAt) {
-            updates.push({ op: "set", path: "/open/firstOpenedAt", value: now });
+        if (!resource.openTracking?.firstOpenedAt) {
+            updates.push({ op: "set", path: "/openTracking/firstOpenedAt", value: now });
         }
-        updates.push({ op: "set", path: "/open/lastOpenedAt", value: now });
+        updates.push({ op: "set", path: "/openTracking/lastOpenedAt", value: now });
 
         // Note: Simple uniqueUserAgents logic for now
         // In a real app we'd track specific user agents
         if (currentOpenCount === 0) {
-            updates.push({ op: "set", path: "/open/uniqueUserAgents", value: 1 });
+            updates.push({ op: "set", path: "/openTracking/uniqueUserAgents", value: 1 });
         }
 
         // Use user_id (partition key)

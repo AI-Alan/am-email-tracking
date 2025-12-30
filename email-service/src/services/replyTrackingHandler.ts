@@ -31,30 +31,30 @@ export async function handleEmailReply(
             console.warn(`⚠️ Reply received for email with FAILED status: ${messageId}. This is unusual.`);
         }
         updates.push({ op: "set", path: "/lifecycleStatus", value: LifecycleStatus.REPLIED });
-        updates.push({ op: "set", path: "/reply/status", value: "REPLIED" });
-        updates.push({ op: "set", path: "/reply/repliedAt", value: receivedAt });
-        updates.push({ op: "set", path: "/reply/from", value: fromEmail });
+        updates.push({ op: "set", path: "/replyTracking/status", value: "REPLIED" });
+        updates.push({ op: "set", path: "/replyTracking/repliedAt", value: receivedAt });
+        updates.push({ op: "set", path: "/replyTracking/from", value: fromEmail });
         
         console.log(`💬 Email replied: ${messageId} (lifecycle: ${previousStatus} -> REPLIED)`);
         
         // Add reply message details if provided
         if (replyMessageId) {
-            updates.push({ op: "set", path: "/reply/replyMessageId", value: replyMessageId });
+            updates.push({ op: "set", path: "/replyTracking/replyMessageId", value: replyMessageId });
         }
         if (replySnippet) {
             // Clean reply content to remove quoted text, signatures, etc.
             // Store only the actual reply content
             const cleanedReply = cleanReplyContent(replySnippet);
             if (cleanedReply) {
-                updates.push({ op: "set", path: "/reply/replySnippet", value: cleanedReply });
+                updates.push({ op: "set", path: "/replyTracking/replySnippet", value: cleanedReply });
             } else {
                 // If cleaning results in empty string, store original (might be a very short reply)
                 console.log(`⚠️ Reply content became empty after cleaning, storing original snippet`);
-                updates.push({ op: "set", path: "/reply/replySnippet", value: replySnippet.substring(0, 500) });
+                updates.push({ op: "set", path: "/replyTracking/replySnippet", value: replySnippet.substring(0, 500) });
             }
         }
         if (isAutoReply !== undefined) {
-            updates.push({ op: "set", path: "/reply/isAutoReply", value: isAutoReply });
+            updates.push({ op: "set", path: "/replyTracking/isAutoReply", value: isAutoReply });
         }
 
         // Use user_id (partition key)

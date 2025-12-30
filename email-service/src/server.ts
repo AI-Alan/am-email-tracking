@@ -3,6 +3,7 @@ import express, { Request, Response } from "express";
 import { emailService } from "./services/emailService";
 import { handleEmailReply } from "./services/replyTrackingHandler";
 import { handleEmailDelivery } from "./services/deliveryTrackingHandler";
+import { handleEmailForwarding } from "./services/forwardingTrackingHandler";
 import { handleEmailOpen } from "./services/openTrackingHandler";
 import { initializeSubscription, getGraphClient } from "./services/subscriptionManager";
 import { emailInsightService } from "./services/emailInsightService";
@@ -209,7 +210,7 @@ async function processInboxMessage(notification: any): Promise<void> {
             const client = getGraphClient();
             messageData = await client
                 .api(`/users/${senderEmail}/messages/${graphMessageId}`)
-                .select('id,subject,from,receivedDateTime,conversationId,internetMessageHeaders,bodyPreview,body')
+                .select('id,subject,from,toRecipients,ccRecipients,receivedDateTime,conversationId,internetMessageHeaders,bodyPreview,body')
                 .get();
         } catch (fetchError: any) {
             console.error(`❌ Failed to fetch message details from Graph API:`, fetchError?.message || fetchError);
@@ -265,6 +266,18 @@ async function processInboxMessage(notification: any): Promise<void> {
                 await handleEmailDelivery(originalMessageId, 'BOUNCED', receivedAt, bounceReason);
                 return;
             }
+        }
+
+        // Check for forwarding before treating as reply
+        // Forwarding detection uses our custom header to identify original message
+        const forwardingCheckMessageId = internetMessageHeaders.find(
+            (h: any) => h.name === "X-AgentMira-Message-Id"
+        )?.value;
+        
+        if (forwardingCheckMessageId) {
+            // Check if this might be a forwarded email
+            // Forwarding handler will determine if it's actually forwarded vs replied
+            await handleEmailForwarding(forwardingCheckMessageId, messageData);
         }
 
         // Otherwise, treat as a reply
