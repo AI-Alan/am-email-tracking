@@ -81,10 +81,10 @@ export function cleanReplyContent(content: string): string {
         if (
             line.startsWith('>') ||
             line.match(/^On .+ wrote:?$/i) ||
-            line.match(/^From:/.i) ||
-            line.match(/^Sent:/.i) ||
-            line.match(/^To:/.i) ||
-            line.match(/^Subject:/.i) ||
+            line.match(/^From:/i) ||
+            line.match(/^Sent:/i) ||
+            line.match(/^To:/i) ||
+            line.match(/^Subject:/i) ||
             line.match(/^-{3,}Original Message-{3,}/i) ||
             line.match(/^-{3,}Forwarded Message-{3,}/i) ||
             line.match(/^From:.*Sent:.*To:.*Subject:/i) || // Email headers in one line
