@@ -31,11 +31,17 @@ Context:
 - The document below is the raw database record.
 - Some fields may be missing or null.
 - If reply data is missing, do not assume intent.
-- If open data is missing, engagement must be LOW.
+- Do NOT use open tracking counts (openCount) - they are unreliable and can be blocked.
+- Only use reply status, reply content, and timestamps for engagement analysis.
 - If reply content shows interest or questions, intent is INTERESTED.
 - If reply is negative or declining, intent is NOT_INTERESTED.
 - If no strong signals exist, set intent to UNKNOWN.
-- Confidence score must reflect data completeness and clarity.
+- Confidence score (0.0-1.0) must reflect data completeness and clarity:
+  * 0.9-1.0: Very high confidence (clear reply content with strong signals)
+  * 0.7-0.8: High confidence (reply exists with moderate signals)
+  * 0.5-0.6: Moderate confidence (reply exists but signals are weak)
+  * 0.3-0.4: Low confidence (limited or ambiguous data)
+  * 0.0-0.2: Very low confidence (minimal or no data available)
 
 RAW EMAIL DOCUMENT:
 {{email_document_json}}
@@ -162,13 +168,15 @@ class EmailInsightService {
             console.log(`   - AZURE_OPENAI_API_KEY`);
             console.log(`   - AZURE_OPENAI_DEPLOYMENT (optional, default: gpt-35-turbo)`);
             console.log(`   - AZURE_OPENAI_API_VERSION (optional, default: 2024-02-15-preview)`);
+            // Default insights: Only use reply status, NOT open count (unreliable)
+            // Confidence 0.5 = moderate confidence since we're using simple rules
             return {
-                engagement_level: emailDoc.open.openCount > 0 ? "MEDIUM" : "LOW",
+                engagement_level: emailDoc.reply.status === "REPLIED" ? "MEDIUM" : "LOW",
                 buyer_intent: emailDoc.reply.status === "REPLIED" ? "INTERESTED" : "UNKNOWN",
                 urgency_level: "LOW",
                 sentiment: "NEUTRAL",
                 next_best_action: "FOLLOW_UP_EMAIL",
-                confidence_score: 0.5
+                confidence_score: 0.5 // Fixed: moderate confidence for default rule-based insights
             };
         }
 
@@ -245,23 +253,27 @@ class EmailInsightService {
                 console.error(`   💡 Resource not found - check AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_DEPLOYMENT`);
             }
             console.log(`📊 Falling back to DEFAULT insights for email ${emailDoc.id} due to AI error`);
-            // Return default insights on error
+            // Return default insights on error: Only use reply status, NOT open count (unreliable)
+            // Confidence 0.3 = low confidence since AI failed and we're using simple rules
             return {
-                engagement_level: emailDoc.open.openCount > 0 ? "MEDIUM" : "LOW",
+                engagement_level: emailDoc.reply.status === "REPLIED" ? "MEDIUM" : "LOW",
                 buyer_intent: emailDoc.reply.status === "REPLIED" ? "INTERESTED" : "UNKNOWN",
                 urgency_level: "LOW",
                 sentiment: "NEUTRAL",
                 next_best_action: "FOLLOW_UP_EMAIL",
-                confidence_score: 0.3
+                confidence_score: 0.3 // Fixed: low confidence when AI fails and we fall back to rules
             };
         }
     }
 
     /**
      * Calculate summary statistics from email tracking data
+     * NOTE: We do NOT use openCount for insights as it's unreliable (tracking pixels can be blocked).
+     * Only reply status and timestamps are used for engagement calculations.
      */
     private calculateSummary(emails: EmailTracking[]): EmailInsightSummary {
         const totalSent = emails.length;
+        // Count emails with open tracking (for display only, NOT used in engagement calculations)
         const emailsOpened = emails.filter(e => e.open.openCount > 0).length;
         const emailsReplied = emails.filter(e => e.reply.status === "REPLIED").length;
 
@@ -278,17 +290,17 @@ class EmailInsightService {
         });
         const avgReplyTime = replyCount > 0 ? Math.round(totalReplyTime / replyCount) : 0;
 
-        // Calculate engagement score (0-100)
-        const openRate = totalSent > 0 ? (emailsOpened / totalSent) * 40 : 0; // 40% weight
-        const replyRate = totalSent > 0 ? (emailsReplied / totalSent) * 60 : 0; // 60% weight
-        const engagementScore = Math.round(openRate + replyRate);
+        // Calculate engagement score (0-100) - ONLY based on reply rate (no open tracking)
+        // Open tracking is unreliable (blocked by email clients, privacy tools, etc.)
+        const replyRate = totalSent > 0 ? (emailsReplied / totalSent) * 100 : 0;
+        const engagementScore = Math.round(replyRate); // 0-100, based solely on replies
 
         return {
             total_emails_sent: totalSent,
-            emails_opened: emailsOpened,
+            emails_opened: emailsOpened, // For display/reference only, NOT used in engagement_score
             emails_replied: emailsReplied,
             avg_reply_time_seconds: avgReplyTime,
-            engagement_score: engagementScore
+            engagement_score: engagementScore // Based ONLY on reply rate (0-100)
         };
     }
 
