@@ -5,6 +5,7 @@ import "isomorphic-fetch";
 import { dbService } from "./dbService";
 import { EmailTracking, LifecycleStatus } from "../types/emailTracking";
 import { htmlToPlainText } from "../utils/emailUtils";
+import { htmlConversionService } from "./htmlConversionService";
 
 // Email log model for Cosmos DB tracking
 // Replaced by EmailTracking from ../types/tracking.ts
@@ -28,8 +29,9 @@ const DEFAULT_EMAIL_BODY = (recipientName: string) => `
 `;
 
 /**
- * Convert plain text to HTML format
+ * Convert plain text to HTML format (Rule-based fallback)
  * Handles line breaks, URLs, and basic formatting
+ * Used as fallback when LLM is not available
  */
 function formatPlainTextToHTML(text: string, recipientName: string): string {
   // Normalize: handle both string and undefined/null
@@ -395,14 +397,17 @@ class EmailService {
       // Embed messageId in email body as HTML comment
       const bodyWithMessageId = `<!-- messageId: ${messageId} -->${htmlBody}`;
       
-      // Automatically add tracking pixel to all emails
+      // Automatically add tracking pixel to all emails BEFORE sending
+      // This is critical for email open tracking to work
       const bodyWithTracking = this.addTrackingPixel(messageId, bodyWithMessageId);
       
-      // Verify tracking pixel was added
+      // Verify tracking pixel was added (must be present before sending)
       if (!bodyWithTracking.includes(`/open/${messageId}.png`)) {
         console.error(`❌ ERROR: Tracking pixel not found in email body for ${messageId}!`);
+        console.error(`   This will prevent open tracking from working.`);
+        throw new Error(`Failed to add tracking pixel to email for ${messageId}`);
       } else {
-        console.log(`✅ Tracking pixel verified in email body for ${messageId}`);
+        console.log(`✅ Tracking pixel verified in email body for ${messageId} (ready to send)`);
       }
 
       const message = {
@@ -474,9 +479,9 @@ class EmailService {
 
   /**
    * Send email - main method that accepts email content
-   * Accepts both plain text and HTML. If plain text, converts to HTML format.
+   * Accepts both plain text and HTML. If plain text, converts to HTML format using LLM.
    * If no body is provided, uses a simple default template
-   * Tracking pixel is automatically added to all emails
+   * Tracking pixel is automatically added to all emails before sending
    */
   async sendEmail(
     email: string,
@@ -515,9 +520,17 @@ class EmailService {
       bodyType = 'plain_text_converted';
       // Store original plain text before conversion
       originalPlainText = normalizedBody;
-      // Body is plain text, convert to HTML
-      emailBody = formatPlainTextToHTML(normalizedBody, recipient.name);
-      console.log(`📝 Converting plain text to HTML for ${recipient.email} (original length: ${normalizedBody.length} chars, HTML length: ${emailBody.length} chars)`);
+      
+      // Use LLM to convert plain text to HTML (falls back to rule-based if LLM unavailable)
+      console.log(`📝 Converting plain text to HTML for ${recipient.email} using ${htmlConversionService.isLLMAvailable() ? 'LLM' : 'rule-based'} method (original length: ${normalizedBody.length} chars)`);
+      
+      emailBody = await htmlConversionService.convertPlainTextToHTML(
+        normalizedBody,
+        recipient.name,
+        formatPlainTextToHTML // Pass rule-based converter as fallback
+      );
+      
+      console.log(`✅ Plain text converted to HTML for ${recipient.email} (HTML length: ${emailBody.length} chars)`);
       
       // Verify conversion worked (should not be default template)
       if (emailBody.includes('Thank you for your message') && normalizedBody.length > 0) {
