@@ -28,7 +28,7 @@ export interface GraphDetails {
 
 export interface SentDetails {
     status: "SENT" | "FAILED" | "PENDING";
-    sentAt: string;
+    sentAt: string; // ISO timestamp
 }
 
 export interface OpenDetails {
@@ -48,24 +48,31 @@ export interface ReplyDetails {
 }
 
 export interface ForwardingDetails {
-    suspected: boolean;
-    confidence: "NONE" | "LOW" | "MEDIUM" | "HIGH";
+    isForwarded: boolean; // Simple boolean flag indicating if email was forwarded
+    forwardedBy?: string; // Email address from Graph API 'from' field (who forwarded it)
+    forwardedAt?: string; // Timestamp from Graph API 'receivedDateTime' (when it was forwarded)
+    forwardedTo?: string[]; // Array of recipient emails from 'toRecipients' and 'ccRecipients' (who it was forwarded to)
+    forwardedMessageId?: string; // Graph API message ID of the forwarded message
 }
 
 export interface EmailTracking {
     id: string; // Internal messageId (UUID)
     user_id: string; // Partition key (must match Cosmos DB partition key path /user_id)
+
     channel: "EMAIL";
     provider: "MICROSOFT_GRAPH";
     direction: "OUTBOUND";
     lifecycleStatus: LifecycleStatus;
+
     recipient: Recipient;
     email: EmailDetails;
     graph: GraphDetails;
-    sent: SentDetails;
-    open: OpenDetails;
-    reply: ReplyDetails;
-    forwarding: ForwardingDetails;
+    deliveryStatus: SentDetails; // Renamed from 'sent'
+    openTracking: OpenDetails; // Renamed from 'open'
+    replyTracking: ReplyDetails; // Renamed from 'reply'
+    forwardingTracking: ForwardingDetails; // Renamed from 'forwarding'
+
+    // Metadata for Cosmos DB indexing/querying
     createdAt: string;
     updatedAt: string;
 }

@@ -50,23 +50,23 @@ export async function handleEmailOpen(messageId: string, userAgent?: string): Pr
             updates.push({ op: "set" as const, path: "/lifecycleStatus", value: LifecycleStatus.OPENED });
         }
 
-        // Use new structure: open.openCount, open.firstOpenedAt, open.lastOpenedAt
-        const currentOpenCount = resource.open?.openCount || 0;
+        // Use new structure: openTracking.openCount, openTracking.firstOpenedAt, openTracking.lastOpenedAt
+        const currentOpenCount = resource.openTracking?.openCount || 0;
         const newOpenCount = currentOpenCount + 1;
         
-        updates.push({ op: "set" as const, path: "/open/openCount", value: newOpenCount });
+        updates.push({ op: "set" as const, path: "/openTracking/openCount", value: newOpenCount });
 
         // Set firstOpenedAt only on first open
-        if (!resource.open?.firstOpenedAt) {
-            updates.push({ op: "set" as const, path: "/open/firstOpenedAt", value: now });
+        if (!resource.openTracking?.firstOpenedAt) {
+            updates.push({ op: "set" as const, path: "/openTracking/firstOpenedAt", value: now });
         }
         
         // Always update lastOpenedAt
-        updates.push({ op: "set" as const, path: "/open/lastOpenedAt", value: now });
+        updates.push({ op: "set" as const, path: "/openTracking/lastOpenedAt", value: now });
 
         // Update uniqueUserAgents (simple logic)
         if (currentOpenCount === 0) {
-            updates.push({ op: "set" as const, path: "/open/uniqueUserAgents", value: 1 });
+            updates.push({ op: "set" as const, path: "/openTracking/uniqueUserAgents", value: 1 });
         }
 
         // Update updatedAt
