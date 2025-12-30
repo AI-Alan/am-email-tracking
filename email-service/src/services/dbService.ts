@@ -208,7 +208,7 @@ class DbService {
      * Sorted by sentAt DESC (most recent first)
      * Limited to last 100 emails for performance
      */
-    async getEmailsByBuyerId(buyerId: string, limit: number = 100, preferGraphData: boolean = true): Promise<EmailTracking[]> {
+    async getEmailsByBuyerId(buyerId: string, limit: number = 50, preferGraphData: boolean = true): Promise<EmailTracking[]> {
         try {
             const container = this.getContainer();
             

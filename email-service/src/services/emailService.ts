@@ -4,6 +4,7 @@ import { randomUUID } from "crypto";
 import "isomorphic-fetch";
 import { dbService } from "./dbService";
 import { EmailTracking, LifecycleStatus } from "../types/emailTracking";
+import { htmlToPlainText } from "../utils/emailUtils";
 
 // Email log model for Cosmos DB tracking
 // Replaced by EmailTracking from ../types/tracking.ts
@@ -301,6 +302,9 @@ class EmailService {
     try {
       const now = new Date().toISOString();
 
+      // Extract plain text from HTML if bodyHtml is provided
+      const bodyText = bodyHtml ? htmlToPlainText(bodyHtml) : undefined;
+
       const emailLog: EmailTracking = {
         id: messageId,
         user_id: recipient.user_id || recipient.email, // Partition key field (must match Cosmos DB partition key path /user_id)
@@ -314,8 +318,9 @@ class EmailService {
         },
         email: {
           subject,
-          bodyHtml: bodyHtml, // Store email body for AI insights
-          templateId: templateName,
+          bodyHtml: bodyHtml, // Store HTML body for AI insights and rendering
+          bodyText: bodyText, // Store plain text version for efficient searching/analysis
+          templateId: templateName, // Store template ID if email was sent from a template
         },
         graph: {
           messageId: "", // Will be updated by fetchGraphMessageDetails

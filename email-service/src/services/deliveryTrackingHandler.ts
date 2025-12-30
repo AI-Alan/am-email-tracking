@@ -20,17 +20,22 @@ export async function handleEmailDelivery(
         const updates: any[] = [];
 
         if (status === 'DELIVERED') {
-            updates.push({ op: "set", path: "/lifecycleStatus", value: LifecycleStatus.SENT }); // Or maybe we need a DELIVERED status? The prompt didn't list DELIVERED in lifecycle status values.
-            // Based on prompt: SENT (graph-confirmed), OPENED (pixel-based), REPLIED (graph-inferred)
-            // I'll keep it as SENT for now if it's just delivered, or map to SENT.
+            // Only update lifecycle status if email is still in SENT or FAILED state
+            // Don't overwrite OPENED or REPLIED status (lifecycle should progress forward, not backward)
+            const currentStatus = resource.lifecycleStatus;
+            const willUpdateStatus = currentStatus === LifecycleStatus.FAILED || currentStatus === LifecycleStatus.SENT;
+            if (willUpdateStatus) {
+                updates.push({ op: "set", path: "/lifecycleStatus", value: LifecycleStatus.SENT });
+            }
+            // Always update sent status and timestamp (these are separate from lifecycle status)
             updates.push({ op: "set", path: "/sent/status", value: "SENT" });
             updates.push({ op: "set", path: "/sent/sentAt", value: timestamp });
-            console.log(`✅ Email delivered: ${messageId}`);
+            const newStatus = willUpdateStatus ? LifecycleStatus.SENT : currentStatus;
+            console.log(`✅ Email delivered: ${messageId} (lifecycle: ${currentStatus} -> ${newStatus})`);
         } else if (status === 'BOUNCED') {
+            // Bounce always sets status to FAILED, regardless of current status
             updates.push({ op: "set", path: "/lifecycleStatus", value: LifecycleStatus.FAILED });
             updates.push({ op: "set", path: "/sent/status", value: "FAILED" });
-            // We could add bounce specific info if we had fields for it in the new structure
-            // For now, I'll just update the status.
             console.log(`❌ Email bounced: ${messageId} - ${bounceReason || 'Unknown reason'}`);
         }
 

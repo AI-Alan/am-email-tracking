@@ -17,9 +17,19 @@ export async function handleEmailOpen(
         const now = new Date().toISOString();
         const updates: any[] = [];
 
-        // Update lifecycle status to OPENED if it was just SENT
-        if (resource.lifecycleStatus === LifecycleStatus.SENT) {
+        // Update lifecycle status to OPENED if email is currently SENT
+        // If email is already REPLIED or FAILED, don't change status
+        // (REPLIED takes precedence over OPENED, and FAILED means email never arrived)
+        const currentStatus = resource.lifecycleStatus;
+        if (currentStatus === LifecycleStatus.SENT) {
             updates.push({ op: "set", path: "/lifecycleStatus", value: LifecycleStatus.OPENED });
+            console.log(`👁️ Email opened: ${messageId} (lifecycle: SENT -> OPENED)`);
+        } else if (currentStatus === LifecycleStatus.OPENED) {
+            // Email already opened, just update open count
+            console.log(`👁️ Email opened again: ${messageId} (lifecycle: already OPENED, updating count)`);
+        } else {
+            // Email is REPLIED, FAILED, etc. - log but don't change status
+            console.log(`👁️ Email opened but lifecycle is ${currentStatus}: ${messageId} (keeping status)`);
         }
 
         const currentOpenCount = resource.open?.openCount || 0;

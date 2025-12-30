@@ -7,6 +7,7 @@ import { handleEmailOpen } from "./services/openTrackingHandler";
 import { initializeSubscription, getGraphClient } from "./services/subscriptionManager";
 import { emailInsightService } from "./services/emailInsightService";
 import { dbService } from "./services/dbService";
+import { cleanReplyContent } from "./utils/emailUtils";
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -218,7 +219,13 @@ async function processInboxMessage(notification: any): Promise<void> {
         const conversationId = messageData.conversationId;
         const internetMessageHeaders = messageData.internetMessageHeaders || [];
         const replyMessageId = messageData.id;
-        const replySnippet = messageData.bodyPreview || messageData.body?.content?.substring(0, 500) || '';
+        // Get full reply content for cleaning (use bodyPreview or full body content)
+        const rawReplyContent = messageData.bodyPreview || messageData.body?.content?.substring(0, 2000) || '';
+        
+        // Clean reply content to remove quoted text, signatures, etc.
+        // This stores only the actual reply content in tracking summary
+        const cleanedReply = cleanReplyContent(rawReplyContent);
+        const replySnippet = cleanedReply || rawReplyContent.substring(0, 500); // Fallback to original if cleaning removes everything
 
         console.log(`📧 Processing message: Subject: "${subject}", From: ${fromEmail}, ConversationId: ${conversationId || 'N/A'}`);
 
