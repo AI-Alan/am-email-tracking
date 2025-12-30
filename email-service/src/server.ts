@@ -266,7 +266,7 @@ async function processInboxMessage(notification: any): Promise<void> {
         const inReplyTo = internetMessageHeaders.find(
             (h: any) => h.name === "In-Reply-To"
         )?.value;
-        
+
         if (inReplyTo) {
             // In-Reply-To contains the internetMessageId in angle brackets: <message-id>
             const internetMessageId = inReplyTo.replace(/[<>]/g, '').trim();

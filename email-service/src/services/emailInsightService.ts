@@ -300,7 +300,7 @@ class EmailInsightService {
             // Use AI insight if available for latest email, otherwise infer from data
             const isLatest = email.id === emails[0]?.id;
             return {
-                email_id: email.id,
+                message_id: email.id, // Internal message ID (UUID) - same as EmailTracking.id
                 sentAt: email.sent.sentAt,
                 insight: {
                     buyer_intent: isLatest ? latestInsight.buyer_intent : (email.reply.status === "REPLIED" ? "INTERESTED" : "UNKNOWN"),

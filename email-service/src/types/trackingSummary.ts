@@ -20,7 +20,7 @@ export interface LatestEmailInsight {
 }
 
 export interface EmailHistoryItem {
-  email_id: string;
+  message_id: string; // Internal message ID (UUID) - same as EmailTracking.id
   sentAt: string;
   insight: {
     buyer_intent: "UNKNOWN" | "INTERESTED" | "NOT_INTERESTED";

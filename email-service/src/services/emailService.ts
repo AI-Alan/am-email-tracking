@@ -17,14 +17,14 @@ export interface EmailRecipient {
 
 // Default email template when no body is provided
 const DEFAULT_EMAIL_BODY = (recipientName: string) => `
-  <div style="font-family: Arial, sans-serif; color: #222;">
+      <div style="font-family: Arial, sans-serif; color: #222;">
     <p>Hello ${recipientName},</p>
     <p>Thank you for your message.</p>
-    <p style="margin: 0; font-size: 1em; color: #222;">
-      <strong>Team Agent Mira</strong><br/>
-      <span style="font-size: 0.95em; color: #555;">AI + Real Agents. On your side.</span>
-    </p>
-  </div>
+        <p style="margin: 0; font-size: 1em; color: #222;">
+          <strong>Team Agent Mira</strong><br/>
+          <span style="font-size: 0.95em; color: #555;">AI + Real Agents. On your side.</span>
+        </p>
+      </div>
 `;
 
 /**
@@ -70,12 +70,12 @@ function formatPlainTextToHTML(text: string, recipientName: string): string {
     <div style="font-family: Arial, sans-serif; color: #222; max-width: 600px;">
       ${bodyContent}
       <p style="margin: 20px 0 0 0; font-size: 1em; color: #222;">
-        <strong>Team Agent Mira</strong><br/>
-        <span style="font-size: 0.95em; color: #555;">AI + Real Agents. On your side.</span>
-      </p>
-    </div>
+          <strong>Team Agent Mira</strong><br/>
+          <span style="font-size: 0.95em; color: #555;">AI + Real Agents. On your side.</span>
+        </p>
+      </div>
   `;
-}
+  }
 
 /**
  * Check if text is HTML or plain text

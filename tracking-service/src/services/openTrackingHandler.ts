@@ -33,7 +33,7 @@ export async function handleEmailOpen(messageId: string, userAgent?: string): Pr
         }
 
         const resource: EmailTracking = resources[0];
-        
+
         // Get partition key value - use user_id
         const partitionKeyValue = resource.user_id;
         
