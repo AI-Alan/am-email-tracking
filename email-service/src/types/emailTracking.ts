@@ -48,8 +48,11 @@ export interface ReplyDetails {
 }
 
 export interface ForwardingDetails {
-    suspected: boolean;
-    confidence: "NONE" | "LOW" | "MEDIUM" | "HIGH";
+    isForwarded: boolean; // Simple boolean flag indicating if email was forwarded
+    forwardedBy?: string; // Email address from Graph API 'from' field (who forwarded it)
+    forwardedAt?: string; // Timestamp from Graph API 'receivedDateTime' (when it was forwarded)
+    forwardedTo?: string[]; // Array of recipient emails from 'toRecipients' and 'ccRecipients' (who it was forwarded to)
+    forwardedMessageId?: string; // Graph API message ID of the forwarded message
 }
 
 export interface EmailTracking {

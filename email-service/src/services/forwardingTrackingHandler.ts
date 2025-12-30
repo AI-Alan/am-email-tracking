@@ -12,13 +12,15 @@ export async function handleEmailForwarding(
     console.log(`📤 Attempting to detect forwarding for message: ${messageId}`);
     
     try {
-        // Get message details from Graph API
+        // Extract Graph API message data
         const internetMessageHeaders = graphMessageData.internetMessageHeaders || [];
         const fromEmail = graphMessageData.from?.emailAddress?.address;
         const toRecipients = graphMessageData.toRecipients || [];
         const ccRecipients = graphMessageData.ccRecipients || [];
         const subject = graphMessageData.subject || "";
         const bodyContent = graphMessageData.body?.content || graphMessageData.bodyPreview || "";
+        const receivedDateTime = graphMessageData.receivedDateTime || new Date().toISOString();
+        const forwardedMessageId = graphMessageData.id; // Graph API message ID of the forwarded message
         
         // Find our custom tracking header
         const ourMessageIdHeader = internetMessageHeaders.find(
@@ -66,7 +68,6 @@ export async function handleEmailForwarding(
         if (forwardedHeader) {
             forwardingIndicators.push(`Forwarding header detected: ${forwardedHeader.name}`);
             if (confidence === "NONE") confidence = "MEDIUM";
-            else if (confidence === "LOW") confidence = "MEDIUM";
             console.log(`📤 Forwarding header found: ${forwardedHeader.name}`);
         }
         
@@ -78,7 +79,6 @@ export async function handleEmailForwarding(
             subjectLower.startsWith("re: fw:")) {
             forwardingIndicators.push(`Forwarding indicator in subject: "${subject}"`);
             if (confidence === "NONE") confidence = "MEDIUM";
-            else if (confidence === "LOW") confidence = "MEDIUM";
             console.log(`📤 Forwarding indicator in subject: "${subject}"`);
         }
         
@@ -125,26 +125,39 @@ export async function handleEmailForwarding(
             console.log(`📤 Tracking ID found in forwarded message body`);
         }
         
-        // Only update if we have at least LOW confidence
-        const suspected = confidence !== "NONE";
+        // Determine if email was forwarded based on detection indicators
+        const isForwarded = confidence !== "NONE";
         
-        if (suspected) {
+        if (isForwarded) {
             console.log(`📤 Forwarding detected for ${originalMessageId}: ${confidence} confidence`);
             console.log(`   Indicators: ${forwardingIndicators.join("; ")}`);
             
-            // Update the forwarding tracking data
+            // Extract recipient emails from Graph API data
+            const forwardedToEmails = [
+                ...toRecipients.map((r: any) => r.emailAddress?.address).filter(Boolean),
+                ...ccRecipients.map((r: any) => r.emailAddress?.address).filter(Boolean)
+            ];
+            
+            // Update the forwarding tracking data with actual Graph API fields
             const updates: any[] = [
-                { op: "set" as const, path: "/forwardingTracking/suspected", value: true },
-                { op: "set" as const, path: "/forwardingTracking/confidence", value: confidence },
+                { op: "set" as const, path: "/forwardingTracking/isForwarded", value: true },
+                { op: "set" as const, path: "/forwardingTracking/forwardedBy", value: fromEmail },
+                { op: "set" as const, path: "/forwardingTracking/forwardedAt", value: receivedDateTime },
+                { op: "set" as const, path: "/forwardingTracking/forwardedTo", value: forwardedToEmails },
+                { op: "set" as const, path: "/forwardingTracking/forwardedMessageId", value: forwardedMessageId },
                 { op: "set" as const, path: "/updatedAt", value: new Date().toISOString() }
             ];
             
             const partitionKey = originalEmail.user_id;
             await dbService.patchTrackingData(originalMessageId, partitionKey, updates);
             
-            console.log(`✅ Forwarding tracked: ${originalMessageId} (confidence: ${confidence})`);
+            console.log(`✅ Forwarding tracked: ${originalMessageId}`);
+            console.log(`   Forwarded by: ${fromEmail}`);
+            console.log(`   Forwarded at: ${receivedDateTime}`);
+            console.log(`   Forwarded to: ${forwardedToEmails.join(", ")}`);
+            console.log(`   Forwarded message ID: ${forwardedMessageId}`);
         } else {
-            console.log(`📤 No forwarding detected for ${originalMessageId} (confidence: ${confidence})`);
+            console.log(`📤 No forwarding detected for ${originalMessageId}`);
         }
         
     } catch (error) {

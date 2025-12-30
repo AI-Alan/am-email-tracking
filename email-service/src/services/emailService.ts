@@ -369,8 +369,8 @@ class EmailService {
           isAutoReply: false,
         },
         forwardingTracking: {
-          suspected: false,
-          confidence: "NONE",
+          isForwarded: false,
+          // Optional fields (forwardedBy, forwardedAt, forwardedTo, forwardedMessageId) remain undefined initially
         },
         createdAt: now,
         updatedAt: now,
